@@ -6,9 +6,10 @@ API REST construite avec **FastAPI**, **SQLite** et **Ollama** (LLM local). Elle
 
 ## 🛠️ Tech Stack
 
-* **Framework :** FastAPI (Python 3.11)
+* **Framework :** FastAPI (Python 3.11+)
 * **LLM Local :** Ollama (Llama3 / Mistral)
 * **Base de données :** SQLite
+* **Tests :** Pytest & HTTPX
 * **Conteneurisation :** Docker
 
 ---
