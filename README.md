@@ -1,95 +1,70 @@
-# 🚀 AI Order Processing API
+# 🚀 API de Traitement de Commandes par IA
 
-<p align="center">
-  <img src="https://img.shields.io/badge/FastAPI-005571?style=for-the-badge&logo=fastapi" alt="FastAPI" />
-  <img src="https://img.shields.io/badge/Python-3.11+-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python" />
-  <img src="https://img.shields.io/badge/Ollama-Local_LLM-black?style=for-the-badge" alt="Ollama" />
-  <img src="https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Docker" />
-  <img src="https://img.shields.io/badge/SQLite-003B57?style=for-the-badge&logo=sqlite&logoColor=white" alt="SQLite" />
-</p>
-
----
-
-## 📌 Présentation
-
-Une **API REST intelligente** conçue pour automatiser le traitement des commandes entrantes.  
-Elle extrait dynamiquement les informations clés contenues dans un e-mail brut (nom du client, articles, montants, statut d'urgence) grâce à un **LLM local (Ollama)**, puis les structure et les persiste dans une base de données **SQLite**.
-
-### ✨ Fonctionnalités clés
-* 🧠 **Extraction par IA locale :** Zéro donnée transmise à un service tiers payant.
-* 🛡️ **Validation stricte :** Typage des données et schémas garantis par **Pydantic**.
-* ⚡ **Performance & Sécurité :** Traitement asynchrone et requêtes SQL préparées.
-* 📦 **Prêt pour le déploiement :** Conteneurisation complète via Docker.
-* 🧪 **Fiabilité :** Suite de tests unitaires/intégration automatisés avec Mocks.
+API REST construite avec **FastAPI**, **SQLite** et **Ollama** (LLM local). Elle permet d'analyser le contenu brut d'un e-mail de commande, d'en extraire les informations clés au format JSON grâce à l'IA, et de les enregistrer en base de données.
 
 ---
 
 ## 🛠️ Tech Stack
 
-| Composant | Technologie |
-| :--- | :--- |
-| **Framework Web** | FastAPI (Python 3.11+) |
-| **Moteur IA** | Ollama (llama3 / mistral) |
-| **Base de données** | SQLite |
-| **Tests & HTTP** | Pytest & HTTPX |
-| **Conteneurisation** | Docker |
+* **Framework :** FastAPI (Python 3.11+)
+* **LLM Local :** Ollama (Llama3 / Mistral)
+* **Base de données :** SQLite
+* **Tests :** Pytest & HTTPX
+* **Conteneurisation :** Docker
 
 ---
 
-## 🚀 Démarrage rapide avec Docker (Recommandé)
+## 🚀 Lancement avec Docker (Recommandé)
 
 ### 1. Prérequis
-* Docker Desktop en cours d'exécution.
-* Ollama installé localement.
+* [Docker Desktop](https://www.docker.com/products/docker-desktop/) installé et lancé.
+* [Ollama](https://ollama.com/) installé sur votre machine avec le modèle souhaité.
 
-### 2. Démarrer Ollama
-Autorisez le réseau à interroger le service Ollama :
+### 2. Démarrage d'Ollama
+Assurez-vous qu'Ollama accepte les requêtes réseau :
 OLLAMA_HOST=0.0.0.0 ollama serve
 
-### 3. Build & Lancement du conteneur
+### 3. Build & Exécution du conteneur
 À la racine du projet :
 
 # Construction de l'image
 docker build -t api-commandes-ia .
 
-# Exécution du conteneur
+# Lancement du conteneur
 docker run -d -p 8000:8000 -e OLLAMA_HOST=http://host.docker.internal:11434 --name mon-api-ia api-commandes-ia
 
-📍 L'API est en ligne sur : http://localhost:8000
+L'API est accessible sur http://localhost:8000.
+
+---
+
+## 🧪 Exécution des Tests Automatisés
+
+Les tests unitaires et d'intégration utilisent des mocks pour le service LLM afin d'assurer une exécution instantanée.
+
+# Lancement de la suite de tests
+python -m pytest
 
 ---
 
 ## 📖 Documentation Interactive (Swagger)
 
-L'API intègre une interface OpenAPI d'exploration interactive disponible sur :  
+Une fois l'application lancée, la documentation interactive Swagger est disponible à l'adresse :  
 👉 http://localhost:8000/docs
 
 ### Endpoints principaux :
-
-| Méthode | Route | Description |
-| :--- | :--- | :--- |
-| POST | /commandes/analyser | Extrait les données d'un mail via LLM et enregistre la commande en BDD. |
-| GET | /commandes/{id} | Récupère la fiche détaillée d'une commande par son ID. |
+* POST /commandes/analyser : Analyse le texte d'un e-mail et enregistre la commande.
+* GET /commandes/{id} : Récupère les détails d'une commande enregistrée.
 
 ---
 
-## 🧪 Tests Automatisés
+## 💻 Lancement en local (sans Docker)
 
-Les tests s'appuient sur des mocks pour isoler le serveur du LLM et garantir une exécution instantanée.
-
-# Exécution de la suite Pytest
-python -m pytest
-
----
-
-## 💻 Démarrage en local (sans Docker)
-
-# 1. Environnement virtuel
+# 1. Création et activation du venv
 python -m venv .venv
 source .venv/bin/activate  # Sur Mac/Linux
 
-# 2. Dépendances
+# 2. Installation des dépendances
 pip install -r requirements.txt
 
-# 3. Lancement du serveur d'arrière-plan
+# 3. Lancement du serveur FastAPI
 uvicorn app.main:app --reload
