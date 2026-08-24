@@ -1,9 +1,9 @@
 import json
 import sqlite3
-from database import get_db
+from app.database import get_db
 from fastapi import FastAPI, HTTPException, status
-from models import CommandeOut, EmailIn
-from services import analyser_mail_avec_llm
+from app.models import CommandeOut, EmailIn
+from app.services import analyser_mail_avec_llm
 
 app = FastAPI(
     title="API de Traitement de Commandes IA",
