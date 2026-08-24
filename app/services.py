@@ -1,11 +1,14 @@
 import json
 import requests
+import os
 from fastapi import HTTPException, status
 
 
 def analyser_mail_avec_llm(texte: str) -> dict:
     """Service dédié à l'interaction avec le modèle Ollama."""
-    url = "http://localhost:11434/api/generate"
+    # Récupère l'adresse via l'environnement Docker, ou prends localhost par défaut
+    ollama_host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+    url = f"{ollama_host}/api/generate"
 
     prompt = f"""
     Tu es un assistant d'extraction de données de commandes.

@@ -1,14 +1,25 @@
 import json
 import sqlite3
-from app.database import get_db
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, status
+
+from app.database import get_db, init_db
 from app.models import CommandeOut, EmailIn
 from app.services import analyser_mail_avec_llm
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Exécution automatique de la création de table au démarrage
+    init_db()
+    yield
+
 
 app = FastAPI(
     title="API de Traitement de Commandes IA",
     description="Architecture modulaire Backend + Ollama + SQLite",
     version="2.0.0",
+    lifespan=lifespan,
 )
 
 
@@ -33,7 +44,7 @@ def traiter_et_sauvegarder(payload: EmailIn):
         articles_json = json.dumps(donnees.get("articles", []))
         cursor.execute(
             """
-            INSERT INTO commandes (numero_commande, client, montant_total, urgence, articles_json)
+            INSERT INTO commandes (numero_commande, client, montant_total, urgence, articles)
             VALUES (?, ?, ?, ?, ?)
             """,
             (
@@ -71,7 +82,7 @@ def lire_commande(commande_id: int):
     cursor = conn.cursor()
 
     cursor.execute(
-        "SELECT id, numero_commande, client, montant_total, urgence, articles_json FROM commandes WHERE id = ?",
+        "SELECT id, numero_commande, client, montant_total, urgence, articles FROM commandes WHERE id = ?",
         (commande_id,),
     )
     ligne = cursor.fetchone()
@@ -89,5 +100,5 @@ def lire_commande(commande_id: int):
         "client": ligne["client"],
         "montant_total": ligne["montant_total"],
         "urgence": ligne["urgence"],
-        "articles": json.loads(ligne["articles_json"]),
+        "articles": json.loads(ligne["articles"]),
     }
