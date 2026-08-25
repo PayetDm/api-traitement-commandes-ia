@@ -1,10 +1,11 @@
 from contextlib import asynccontextmanager
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.database import Base, engine, get_db, obtenir_commande, sauvegarder_commande
+from app.database import Base, SessionLocal, engine, get_db, obtenir_commande, sauvegarder_commande
 from app.schemas import CommandeSchema, EmailIn
-from app.services import analyser_mail_avec_llm  # <--- Nom exact du service
+from app.security import verifier_cle_api
+from app.services import analyser_mail_avec_llm
 
 
 @asynccontextmanager
@@ -16,31 +17,38 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="API Traitement Commandes IA - V2", lifespan=lifespan)
 
 
+def traiter_email_en_tache_de_fond(texte_email: str):
+    """Fonction exécutée en arrière-plan pour appeler l'IA et sauvegarder."""
+    db = SessionLocal()
+    try:
+        donnees_extraites = analyser_mail_avec_llm(texte_email)
+        if donnees_extraites:
+            donnees_adaptees = {
+                "client": donnees_extraites.get("client", "Inconnu"),
+                "montant_total": float(donnees_extraites.get("montant_total_eur", 0.0)),
+                "urgente": donnees_extraites.get("statut_livraison") == "urgent",
+                "articles": donnees_extraites.get("articles", []),
+            }
+            sauvegarder_commande(db, donnees_adaptees)
+    finally:
+        db.close()
+
+
 @app.post(
     "/commandes/analyser",
-    response_model=CommandeSchema,
-    status_code=status.HTTP_201_CREATED,
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(verifier_cle_api)], # <--- Sécurité
 )
-async def analyser_commande(payload: EmailIn, db: Session = Depends(get_db)):
-    # 1. Analyse IA avec le bon nom de fonction
-    donnees_extraites = analyser_mail_avec_llm(payload.contenu_email)
+async def analyser_commande(
+    payload: EmailIn, background_tasks: BackgroundTasks
+):
+    # Traitement dans la file d'attente d'arrière-plan
+    background_tasks.add_task(traiter_email_en_tache_de_fond, payload.contenu_email)
 
-    if not donnees_extraites:
-        raise HTTPException(
-            status_code=400, detail="Impossible d'extraire les données de l'e-mail."
-        )
-
-    # 2. Harmonisation simple si les clés du JSON diffèrent légèrement
-    donnees_adaptees = {
-        "client": donnees_extraites.get("client", "Inconnu"),
-        "montant_total": float(donnees_extraites.get("montant_total_eur", 0.0)),
-        "urgente": donnees_extraites.get("statut_livraison") == "urgent",
-        "articles": donnees_extraites.get("articles", []),
+    return {
+        "message": "E-mail reçu et en cours d'analyse par l'IA.",
+        "statut": "en_cours",
     }
-
-    # 3. Sauvegarde ORM
-    commande = sauvegarder_commande(db, donnees_adaptees)
-    return commande
 
 
 @app.get("/commandes/{commande_id}", response_model=CommandeSchema)

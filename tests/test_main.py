@@ -3,16 +3,15 @@ from fastapi.testclient import TestClient
 
 from app.database import Base, engine
 from app.main import app
+from app.security import SECRET_API_KEY
 
-# Création explicite des tables pour l'environnement de test
 Base.metadata.create_all(bind=engine)
 
 client = TestClient(app)
 
 
 @patch("app.main.analyser_mail_avec_llm")
-def test_analyser_commande_succes(mock_ollama):
-    # Simulation de la réponse JSON exacte d'Ollama
+def test_analyser_commande_asynchrone(mock_ollama):
     mock_ollama.return_value = {
         "client": "Jean Dupont",
         "numero_commande": "CMD123",
@@ -27,14 +26,20 @@ def test_analyser_commande_succes(mock_ollama):
         "contenu_email": "Commande urgente de Jean Dupont pour 1 Clavier RGB a 150 euros."
     }
 
-    response = client.post("/commandes/analyser", json=payload)
+    # On passe la clé API valide dans les headers
+    headers = {"X-API-Key": SECRET_API_KEY}
+    response = client.post("/commandes/analyser", json=payload, headers=headers)
 
-    assert response.status_code == 201
+    assert response.status_code == 202
     data = response.json()
-    assert data["client"] == "Jean Dupont"
-    assert data["montant_total"] == 150.0
-    assert data["urgente"] is True
-    assert len(data["articles"]) == 1
+    assert data["statut"] == "en_cours"
+
+
+def test_analyser_commande_sans_cle_api():
+    """Vérifie que l'accès est refusé sans clé API."""
+    payload = {"contenu_email": "Mail sans autorisation."}
+    response = client.post("/commandes/analyser", json=payload)
+    assert response.status_code == 401
 
 
 def test_lire_commande_non_trouvee():
