@@ -1,0 +1,12 @@
+services:
+  api:
+    build: .
+    container_name: api-commandes-ia
+    ports:
+      - "8000:8000"
+    environment:
+      - API_KEY=${API_KEY:-mon_secret_123}
+      - OLLAMA_HOST=http://host.docker.internal:11434
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: always
