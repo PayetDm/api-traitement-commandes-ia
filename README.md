@@ -1,7 +1,7 @@
 # 🚀 API de Traitement de Commandes par IA (V2)
 
 API REST construite avec **FastAPI**, **SQLAlchemy (ORM)**, **SQLite** et **Ollama** (LLM local).  
-Elle permet d'analyser le contenu brut d'un e-mail de commande, d'en extraire les informations clés au format JSON grâce à l'IA, et de les enregistrer en base de données relationnelle.
+Elle permet d'analyser le contenu d'un e-mail de commande en arrière-plan (Background Tasks), d'en extraire les informations clés via l'IA, et de les enregistrer en base de données.
 
 ---
 
@@ -11,62 +11,39 @@ Elle permet d'analyser le contenu brut d'un e-mail de commande, d'en extraire le
 * **ORM & Persistance :** SQLAlchemy & SQLite
 * **Validation & Schémas :** Pydantic v2
 * **LLM Local :** Ollama (Qwen2.5 / Llama3 / Mistral)
+* **Sécurité :** Authentification par clé API (`X-API-Key`)
 * **Tests Automatisés :** Pytest & HTTPX
 * **Conteneurisation :** Docker
 
 ---
 
-## 🚀 Lancement avec Docker (Recommandé)
+## 🔑 Configuration (.env)
 
-### 1. Prérequis
-* [Docker Desktop](https://www.docker.com/products/docker-desktop/) installé et lancé.
-* [Ollama](https://ollama.com/) installé sur votre machine avec le modèle souhaité (`qwen2.5-coder:3b` par exemple).
+Créez un fichier `.env` à la racine du projet :
 
-### 2. Démarrage d'Ollama
-Assurez-vous qu'Ollama accepte les requêtes réseau :
-OLLAMA_HOST=0.0.0.0 ollama serve
+API_KEY=mon_secret_123
 
-### 3. Build & Exécution du conteneur
-À la racine du projet :
+---
 
-# Construction de l'image Docker
+## 🚀 Lancement rapide avec Docker
+
+# Build de l'image
 docker build -t api-commandes-ia .
 
 # Lancement du conteneur
-docker run -d -p 8000:8000 -e OLLAMA_HOST=http://host.docker.internal:11434 --name mon-api-ia api-commandes-ia
-
-L'API est accessible sur http://localhost:8000.
+docker run -d -p 8000:8000 -e API_KEY="mon_secret_123" -e OLLAMA_HOST=http://host.docker.internal:11434 --name mon-api-ia api-commandes-ia
 
 ---
 
-## 🧪 Exécution des Tests Automatisés
+## 🔒 Sécurité & Endpoints
 
-Les tests unitaires et d'intégration s'appuient sur des mocks pour simuler le service LLM et garantir une exécution instantanée sans appel réseau externe.
+Pour exécuter une requête sur l'endpoint d'analyse, le header `X-API-Key` est obligatoire.
 
-# Lancement de la suite de tests
+* `POST /commandes/analyser` : Reçoit l'e-mail, renvoie `202 Accepted` et lance l'analyse IA en tâche de fond. (Nécessite `X-API-Key`)
+* `GET /commandes/{id}` : Récupère les détails d'une commande enregistrée.
+
+---
+
+## 🧪 Tests Automatisés
+
 python -m pytest
-
----
-
-## 📖 Documentation Interactive (Swagger)
-
-Une fois l'application lancée, la documentation interactive Swagger est disponible à l'adresse :  
-👉 http://localhost:8000/docs
-
-### Endpoints principaux :
-* `POST /commandes/analyser` : Analyse le texte d'un e-mail via l'IA et enregistre la commande en BDD via l'ORM.
-* `GET /commandes/{id}` : Récupère les détails d'une commande enregistrée par son ID.
-
----
-
-## 💻 Lancement en local (sans Docker)
-
-# 1. Création et activation de l'environnement virtuel
-python -m venv .venv
-source .venv/bin/activate  # Sur Mac/Linux
-
-# 2. Installation des dépendances
-pip install -r requirements.txt
-
-# 3. Lancement du serveur FastAPI
-uvicorn app.main:app --reload
