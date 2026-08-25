@@ -4,8 +4,8 @@ from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, status
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.database import Base, SessionLocal, engine, get_db, obtenir_commande, sauvegarder_commande
-from app.schemas import CommandeSchema, EmailIn
+from app.database import Base, Commande, SessionLocal, engine, get_db, obtenir_commande, sauvegarder_commande
+from app.schemas import CommandeSchema, EmailIn, CommandeStatutUpdate
 from app.security import verifier_cle_api
 from app.services import analyser_mail_avec_llm
 
@@ -33,15 +33,31 @@ def traiter_email_en_tache_de_fond(texte_email: str):
     db = SessionLocal()
     try:
         donnees_extraites = analyser_mail_avec_llm(texte_email)
+        
         if donnees_extraites:
+            # 1. Verification du gardien Python / LLM
+            est_commande = donnees_extraites.get("est_une_commande", True)
+            articles = donnees_extraites.get("articles", [])
+            montant = float(donnees_extraites.get("montant_total", 0.0))
+
+            # Si c'est hors-sujet ou sans articles/montant -> Direction SAV
+            if not est_commande or (len(articles) == 0 and montant == 0.0):
+                statut_final = "transfere_sav"
+                logger.info("Email classe comme Hors-Sujet/SAV.")
+            else:
+                statut_final = "en_attente"
+
+            # 2. Preparation des donnees propres avec les bonnes clés
             donnees_adaptees = {
                 "client": donnees_extraites.get("client", "Inconnu"),
-                "montant_total": float(donnees_extraites.get("montant_total_eur", 0.0)),
-                "urgente": donnees_extraites.get("statut_livraison") == "urgent",
-                "articles": donnees_extraites.get("articles", []),
+                "montant_total": montant,
+                "urgente": donnees_extraites.get("urgente", False),
+                "articles": articles,
+                "statut": statut_final,
             }
+
             commande = sauvegarder_commande(db, donnees_adaptees)
-            logger.info("Commande #%s sauvegardee avec succes.", commande.id)
+            logger.info("Enregistrement #%s sauvegarde (Statut: %s).", commande.id, statut_final)
         else:
             logger.warning("Aucune donnee valide n'a pu etre extraite de l'e-mail.")
     except Exception as e:
@@ -86,4 +102,27 @@ def lire_commande(commande_id: int, db: Session = Depends(get_db)):
     commande = obtenir_commande(db, commande_id)
     if not commande:
         raise HTTPException(status_code=404, detail="Commande non trouvee.")
+    return commande
+
+
+@app.get("/commandes", response_model=list[CommandeSchema])
+def lister_commandes(db: Session = Depends(get_db)):
+    """Recupere la liste de toutes les commandes."""
+    return db.query(Commande).all()
+
+
+@app.patch("/commandes/{commande_id}/statut", response_model=CommandeSchema)
+def mettre_a_jour_statut(
+    commande_id: int, 
+    payload: CommandeStatutUpdate, 
+    db: Session = Depends(get_db)
+):
+    """Met a jour le statut d'une commande (ex: en_attente, traitee, expediee)."""
+    commande = obtenir_commande(db, commande_id)
+    if not commande:
+        raise HTTPException(status_code=404, detail="Commande non trouvee.")
+    
+    commande.statut = payload.statut
+    db.commit()
+    db.refresh(commande)
     return commande

@@ -1,61 +1,58 @@
-from sqlalchemy import create_engine
-from sqlalchemy.orm import declarative_base, sessionmaker
+import os
+from sqlalchemy import Column, Float, Integer, String, Boolean, JSON, create_engine
+from sqlalchemy.orm import declarative_base, sessionmaker, Session
 
-# URL de la base de données (SQLite en local)
 SQLALCHEMY_DATABASE_URL = "sqlite:///./commandes.db"
 
-# Création du moteur SQLite
-# check_same_thread=False est nécessaire uniquement pour SQLite avec FastAPI
 engine = create_engine(
     SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
 )
-
-# Session pour interagir avec la BDD
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-# Base de classe pour nos modèles ORM
 Base = declarative_base()
 
 
+class Commande(Base):
+    __tablename__ = "commandes"
+    __table_args__ = {"extend_existing": True}
+
+    id = Column(Integer, primary_key=True, index=True)
+    client = Column(String, index=True)
+    montant_total = Column(Float)
+    urgente = Column(Boolean, default=False)
+    statut = Column(String, default="en_attente")
+    articles = Column(JSON)
+
+
 def get_db():
-    """Dépendance FastAPI pour obtenir une session de BDD par requête."""
     db = SessionLocal()
     try:
         yield db
     finally:
         db.close()
 
-from sqlalchemy.orm import Session
-from app.models import Article, Commande
 
+# --- Fonctions Helper BDD ---
 
-def sauvegarder_commande(db: Session, donnes: dict) -> Commande:
-    """Enregistre une commande et ses articles en BDD via SQLAlchemy."""
-    # 1. Création de la commande
+def sauvegarder_commande(db: Session, data: dict) -> Commande:
+    """Enregistre un mail analysé (commande ou transfert SAV)."""
+    
+    # On récupère le statut préparé en amont par main.py
+    statut_final = data.get("statut", "en_attente")
+
     nouvelle_commande = Commande(
-        client=donnes["client"],
-        montant_total=donnes["montant_total"],
-        urgente=1 if donnes.get("urgente") else 0,
+        client=data.get("client", "Client Inconnu"),
+        montant_total=data.get("montant_total", 0.0),
+        urgente=data.get("urgente", False),
+        statut=statut_final,
+        articles=data.get("articles", [])
     )
     db.add(nouvelle_commande)
-    db.commit()
-    db.refresh(nouvelle_commande)
-
-    # 2. Création des articles associés
-    for item in donnes.get("articles", []):
-        article = Article(
-            commande_id=nouvelle_commande.id,
-            nom=item["nom"],
-            quantite=item["quantite"],
-            prix_unitaire=item["prix_unitaire"],
-        )
-        db.add(article)
-
     db.commit()
     db.refresh(nouvelle_commande)
     return nouvelle_commande
 
 
-def obtenir_commande(db: Session, commande_id: int):
-    """Récupère une commande par son ID avec ses articles."""
+def obtenir_commande(db: Session, commande_id: int) -> Commande:
+    """Récupère une commande par son ID."""
     return db.query(Commande).filter(Commande.id == commande_id).first()
