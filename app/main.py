@@ -1,104 +1,51 @@
-import json
-import sqlite3
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, status
+from sqlalchemy.orm import Session
 
-from app.database import get_db, init_db
-from app.models import CommandeOut, EmailIn
-from app.services import analyser_mail_avec_llm
+from app.database import Base, engine, get_db, obtenir_commande, sauvegarder_commande
+from app.schemas import CommandeSchema, EmailIn
+from app.services import analyser_mail_avec_llm  # <--- Nom exact du service
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Exécution automatique de la création de table au démarrage
-    init_db()
+    Base.metadata.create_all(bind=engine)
     yield
 
 
-app = FastAPI(
-    title="API de Traitement de Commandes IA",
-    description="Architecture modulaire Backend + Ollama + SQLite",
-    version="2.0.0",
-    lifespan=lifespan,
-)
+app = FastAPI(title="API Traitement Commandes IA - V2", lifespan=lifespan)
 
 
 @app.post(
     "/commandes/analyser",
-    response_model=CommandeOut,
+    response_model=CommandeSchema,
     status_code=status.HTTP_201_CREATED,
 )
-def traiter_et_sauvegarder(payload: EmailIn):
-    donnees = analyser_mail_avec_llm(payload.texte_email)
+async def analyser_commande(payload: EmailIn, db: Session = Depends(get_db)):
+    # 1. Analyse IA avec le bon nom de fonction
+    donnees_extraites = analyser_mail_avec_llm(payload.contenu_email)
 
-    if not donnees or "numero_commande" not in donnees:
+    if not donnees_extraites:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Informations de commande incomplètes.",
+            status_code=400, detail="Impossible d'extraire les données de l'e-mail."
         )
 
-    conn = get_db()
-    cursor = conn.cursor()
-
-    try:
-        articles_json = json.dumps(donnees.get("articles", []))
-        cursor.execute(
-            """
-            INSERT INTO commandes (numero_commande, client, montant_total, urgence, articles)
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            (
-                donnees.get("numero_commande"),
-                donnees.get("client", "Inconnu"),
-                donnees.get("montant_total_eur", 0.0),
-                donnees.get("statut_livraison", "normal"),
-                articles_json,
-            ),
-        )
-        conn.commit()
-        commande_id = cursor.lastrowid
-    except sqlite3.IntegrityError:
-        conn.close()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Commande '{donnees.get('numero_commande')}' existe déjà.",
-        )
-    finally:
-        conn.close()
-
-    return {
-        "id": commande_id,
-        "numero_commande": donnees.get("numero_commande"),
-        "client": donnees.get("client"),
-        "montant_total": donnees.get("montant_total_eur"),
-        "urgence": donnees.get("statut_livraison"),
-        "articles": donnees.get("articles", []),
+    # 2. Harmonisation simple si les clés du JSON diffèrent légèrement
+    donnees_adaptees = {
+        "client": donnees_extraites.get("client", "Inconnu"),
+        "montant_total": float(donnees_extraites.get("montant_total_eur", 0.0)),
+        "urgente": donnees_extraites.get("statut_livraison") == "urgent",
+        "articles": donnees_extraites.get("articles", []),
     }
 
+    # 3. Sauvegarde ORM
+    commande = sauvegarder_commande(db, donnees_adaptees)
+    return commande
 
-@app.get("/commandes/{commande_id}", response_model=CommandeOut)
-def lire_commande(commande_id: int):
-    conn = get_db()
-    cursor = conn.cursor()
 
-    cursor.execute(
-        "SELECT id, numero_commande, client, montant_total, urgence, articles FROM commandes WHERE id = ?",
-        (commande_id,),
-    )
-    ligne = cursor.fetchone()
-    conn.close()
-
-    if not ligne:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Commande ID {commande_id} introuvable.",
-        )
-
-    return {
-        "id": ligne["id"],
-        "numero_commande": ligne["numero_commande"],
-        "client": ligne["client"],
-        "montant_total": ligne["montant_total"],
-        "urgence": ligne["urgence"],
-        "articles": json.loads(ligne["articles"]),
-    }
+@app.get("/commandes/{commande_id}", response_model=CommandeSchema)
+def lire_commande(commande_id: int, db: Session = Depends(get_db)):
+    commande = obtenir_commande(db, commande_id)
+    if not commande:
+        raise HTTPException(status_code=404, detail="Commande non trouvée.")
+    return commande

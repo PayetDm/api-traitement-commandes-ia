@@ -1,15 +1,17 @@
-# 🚀 API de Traitement de Commandes par IA
+# 🚀 API de Traitement de Commandes par IA (V2)
 
-API REST construite avec **FastAPI**, **SQLite** et **Ollama** (LLM local). Elle permet d'analyser le contenu brut d'un e-mail de commande, d'en extraire les informations clés au format JSON grâce à l'IA, et de les enregistrer en base de données.
+API REST construite avec **FastAPI**, **SQLAlchemy (ORM)**, **SQLite** et **Ollama** (LLM local).  
+Elle permet d'analyser le contenu brut d'un e-mail de commande, d'en extraire les informations clés au format JSON grâce à l'IA, et de les enregistrer en base de données relationnelle.
 
 ---
 
 ## 🛠️ Tech Stack
 
-* **Framework :** FastAPI (Python 3.11+)
-* **LLM Local :** Ollama (Llama3 / Mistral)
-* **Base de données :** SQLite
-* **Tests :** Pytest & HTTPX
+* **Framework Web :** FastAPI (Python 3.11+)
+* **ORM & Persistance :** SQLAlchemy & SQLite
+* **Validation & Schémas :** Pydantic v2
+* **LLM Local :** Ollama (Qwen2.5 / Llama3 / Mistral)
+* **Tests Automatisés :** Pytest & HTTPX
 * **Conteneurisation :** Docker
 
 ---
@@ -18,7 +20,7 @@ API REST construite avec **FastAPI**, **SQLite** et **Ollama** (LLM local). Elle
 
 ### 1. Prérequis
 * [Docker Desktop](https://www.docker.com/products/docker-desktop/) installé et lancé.
-* [Ollama](https://ollama.com/) installé sur votre machine avec le modèle souhaité.
+* [Ollama](https://ollama.com/) installé sur votre machine avec le modèle souhaité (`qwen2.5-coder:3b` par exemple).
 
 ### 2. Démarrage d'Ollama
 Assurez-vous qu'Ollama accepte les requêtes réseau :
@@ -27,7 +29,7 @@ OLLAMA_HOST=0.0.0.0 ollama serve
 ### 3. Build & Exécution du conteneur
 À la racine du projet :
 
-# Construction de l'image
+# Construction de l'image Docker
 docker build -t api-commandes-ia .
 
 # Lancement du conteneur
@@ -39,7 +41,7 @@ L'API est accessible sur http://localhost:8000.
 
 ## 🧪 Exécution des Tests Automatisés
 
-Les tests unitaires et d'intégration utilisent des mocks pour le service LLM afin d'assurer une exécution instantanée.
+Les tests unitaires et d'intégration s'appuient sur des mocks pour simuler le service LLM et garantir une exécution instantanée sans appel réseau externe.
 
 # Lancement de la suite de tests
 python -m pytest
@@ -52,14 +54,14 @@ Une fois l'application lancée, la documentation interactive Swagger est disponi
 👉 http://localhost:8000/docs
 
 ### Endpoints principaux :
-* POST /commandes/analyser : Analyse le texte d'un e-mail et enregistre la commande.
-* GET /commandes/{id} : Récupère les détails d'une commande enregistrée.
+* `POST /commandes/analyser` : Analyse le texte d'un e-mail via l'IA et enregistre la commande en BDD via l'ORM.
+* `GET /commandes/{id}` : Récupère les détails d'une commande enregistrée par son ID.
 
 ---
 
 ## 💻 Lancement en local (sans Docker)
 
-# 1. Création et activation du venv
+# 1. Création et activation de l'environnement virtuel
 python -m venv .venv
 source .venv/bin/activate  # Sur Mac/Linux
 

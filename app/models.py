@@ -1,26 +1,34 @@
-from typing import List
-from pydantic import BaseModel, Field
+from sqlalchemy import Column, Float, ForeignKey, Integer, String
+from sqlalchemy.orm import relationship
+from app.database import Base
 
 
-class Article(BaseModel):
-    nom: str = Field(..., example="Panneau de chêne massif")
-    quantite: int = Field(..., gt=0, example=2)
-    prix_unitaire: float = Field(..., gt=0.0, example=45.0)
+class Commande(Base):
+    """Table 'commandes' en BDD."""
 
+    __tablename__ = "commandes"
 
-class EmailIn(BaseModel):
-    texte_email: str = Field(
-        ...,
-        min_length=10,
-        description="Le contenu brut du mail contenant la commande",
-        example="Bonjour, commande CMD-102 pour Damien : 2 tables à 50€. Urgent.",
+    id = Column(Integer, primary_key=True, index=True)
+    client = Column(String, nullable=False)
+    montant_total = Column(Float, nullable=False)
+    urgente = Column(Integer, default=0)  # 1 si urgente, 0 sinon
+
+    # Relation 1-à-plusieurs avec les articles
+    articles = relationship(
+        "Article", back_populates="commande", cascade="all, delete-orphan"
     )
 
 
-class CommandeOut(BaseModel):
-    id: int
-    numero_commande: str
-    client: str
-    montant_total: float
-    urgence: str
-    articles: List[Article]
+class Article(Base):
+    """Table 'articles' en BDD."""
+
+    __tablename__ = "articles"
+
+    id = Column(Integer, primary_key=True, index=True)
+    commande_id = Column(Integer, ForeignKey("commandes.id"), nullable=False)
+    nom = Column(String, nullable=False)
+    quantite = Column(Integer, nullable=False)
+    prix_unitaire = Column(Float, nullable=False)
+
+    # Relation inverse vers la commande
+    commande = relationship("Commande", back_populates="articles")
