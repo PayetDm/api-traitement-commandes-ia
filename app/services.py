@@ -1,54 +1,50 @@
 import json
+import logging
 import requests
-import os
-from fastapi import HTTPException, status
+
+# Configuration du logger pour ce module
+logger = logging.getLogger(__name__)
+
+OLLAMA_URL = "http://localhost:11434/api/generate"
+MODELE_IA = "qwen2.5-coder:3b"
 
 
-def analyser_mail_avec_llm(texte: str) -> dict:
-    """Service dédié à l'interaction avec le modèle Ollama."""
-    # Récupère l'adresse via l'environnement Docker, ou prends localhost par défaut
-    ollama_host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-    url = f"{ollama_host}/api/generate"
-
+def analyser_mail_avec_llm(texte_email: str) -> dict:
     prompt = f"""
-    Tu es un assistant d'extraction de données de commandes.
-    Analyse ce texte et réponds EXCLUSIVEMENT avec un objet JSON structuré comme suit :
-    {{
-        "client": "Nom du client",
-        "numero_commande": "Code ou numéro identifié",
-        "montant_total_eur": 0.0,
-        "articles": [
-            {{"nom": "Nom produit", "quantite": 1, "prix_unitaire": 0.0}}
-        ],
-        "statut_livraison": "urgent" ou "normal"
-    }}
+    Tu es un assistant d'extraction de donnees.
+    Analyse le texte de l'e-mail suivant et extrait les informations au format JSON strict avec les clefs :
+    - client (chaine de caracteres)
+    - numero_commande (chaine de caracteres)
+    - montant_total_eur (nombre flottant)
+    - statut_livraison (chaine : "urgent" ou "normal")
+    - articles (liste d'objets avec : nom, quantite, prix_unitaire)
 
-    Texte à analyser :
-    {texte}
+    Texte de l'e-mail :
+    \"\"\"{texte_email}\"\"\"
+
+    Reponds UNIQUEMENT avec le JSON, sans texte d'introduction ni explications.
     """
 
-    try:
-        response = requests.post(
-            url,
-            json={
-                "model": "qwen2.5-coder:3b",
-                "prompt": prompt,
-                "format": "json",
-                "stream": False,
-            },
-            timeout=30,
-        )
-        response.raise_for_status()
-        resultat_raw = response.json().get("response", "{}")
-        return json.loads(resultat_raw)
+    payload = {
+        "model": MODELE_IA,
+        "prompt": prompt,
+        "stream": False,
+        "format": "json",
+    }
 
-    except requests.exceptions.Timeout:
-        raise HTTPException(
-            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
-            detail="Ollama ne répond pas (timeout).",
-        )
-    except (requests.exceptions.RequestException, json.JSONDecodeError) as e:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Erreur lors de la communication avec l'IA : {e}",
-        )
+    try:
+        logger.info("Envoi de la requete a Ollama...")
+        response = requests.post(OLLAMA_URL, json=payload, timeout=30)
+        response.raise_for_status()
+
+        resultat = response.json()
+        contenu_json = json.loads(resultat.get("response", "{}"))
+        logger.info("Analyse IA terminee avec succes.")
+        return contenu_json
+
+    except requests.exceptions.RequestException as e:
+        logger.error("Erreur de communication avec Ollama : %s", e)
+        return {}
+    except json.JSONDecodeError as e:
+        logger.error("Erreur de decodage du JSON renvoye par l'IA : %s", e)
+        return {}

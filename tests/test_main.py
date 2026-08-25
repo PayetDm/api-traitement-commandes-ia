@@ -45,3 +45,9 @@ def test_analyser_commande_sans_cle_api():
 def test_lire_commande_non_trouvee():
     response = client.get("/commandes/999999")
     assert response.status_code == 404
+
+
+def test_health_check():
+    response = client.get("/health")
+    assert response.status_code == 200
+    assert response.json() == {"statut": "ok", "base_de_donnees": "connectee"}
