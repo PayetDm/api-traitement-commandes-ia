@@ -1,0 +1,17 @@
+# Environnement virtuel
+.venv/
+venv/
+
+# Fichiers Python temporaires
+__pycache__/
+*.pyc
+
+# Base de données locale (on ne versionne pas les données de test)
+*.db
+
+# Fichiers système
+.DS_Store
+
+# Clé API
+.env
+

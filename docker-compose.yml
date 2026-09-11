@@ -1,0 +1,85 @@
+services:
+  # Base de données PostgreSQL
+  postgres:
+    image: postgres@sha256:fe0737ba566a2c5b2a28f34433c0a423261900ec17b9bf7ad115e1aae7e57f1b
+    container_name: bdd_postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-dev_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-commandes_db}
+    # Ports fermés à l'extérieur : accessible uniquement via le réseau interne
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - backend_net
+    restart: always
+
+  # API FastAPI (Bridge entre Frontend et Backend)
+  api:
+    build: .
+    container_name: api_fastapi
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      - API_KEY=${API_KEY}
+      - DATABASE_URL=${DATABASE_URL}
+      - OLLAMA_URL=http://ollama:11434
+      - MAILHOG_API_URL=${MAILHOG_API_URL}
+      - MAILHOG_DELETE_URL=${MAILHOG_DELETE_URL}
+    depends_on:
+      - postgres
+      - ollama
+      - mailhog
+    networks:
+      - backend_net
+      - frontend_net
+    restart: always
+
+  # Interface Streamlit
+  streamlit:
+    build: .
+    container_name: interface_streamlit
+    command: streamlit run app_streamlit.py --server.port=8501 --server.address=0.0.0.0
+    ports:
+      - "127.0.0.1:8501:8501"
+    environment:
+      - API_URL=${API_URL}
+      - API_KEY=${API_KEY}
+    depends_on:
+      - api
+    networks:
+      - frontend_net
+    restart: always
+
+  # Moteur IA Ollama
+  ollama:
+    image: ollama/ollama@sha256:08ddf4b4dbfdc4fc1f5b0fe535915998581085402e307b57bb308db68460e372
+    container_name: service_ollama
+    # Ports fermés à l'extérieur : accessible uniquement par l'API
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - backend_net
+    restart: always
+
+  # Serveur de mail de test local (MailHog)
+  mailhog:
+    image: mailhog/mailhog@sha256:8d76a3d4ffa32a3661311944007a415332c4bb855657f4f6c57996405c009bea
+    container_name: service_mailhog
+    ports:
+      - "127.0.0.1:8025:8025" # Interface Web de consultation uniquement
+    networks:
+      - backend_net
+    restart: always
+
+networks:
+  backend_net:
+    driver: bridge
+    internal: true
+  frontend_net:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  ollama_data:
