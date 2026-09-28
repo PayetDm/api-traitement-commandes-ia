@@ -57,4 +57,4 @@ jobs:
         fetch-depth: 0
 
     - name: Scanner les secrets
-      uses: gitleaks/gitleaks-action@v2
+      uses: gitleaks/gitleaks-action@v3
