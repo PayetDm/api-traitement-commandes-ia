@@ -1,6 +1,7 @@
 import os
 import requests
 import streamlit as st
+from style import apply_custom_style
 
 # Configuration de la page Streamlit
 st.set_page_config(
@@ -8,6 +9,8 @@ st.set_page_config(
     page_icon="📦",
     layout="wide",
 )
+
+apply_custom_style()
 
 # Récupération des variables d'environnement
 API_URL = os.getenv("API_URL", "http://127.0.0.1:8000")
@@ -22,7 +25,7 @@ HEADERS = {
     "Content-Type": "application/json",
 }
 
-st.title("📦 PyTechData — Dashboard de Traitement IA")
+st.title("📦 Dashboard de Traitement IA")
 st.caption("Supervision en temps réel des commandes extraites par LLM")
 
 # ==========================================
@@ -64,7 +67,7 @@ st.subheader("📋 Traitement des dossiers")
 
 col_left, col_right = st.columns([8, 2])
 with col_right:
-    if st.button("🔄 Rafraîchir les données", use_container_width=True):
+    if st.button("🔄 Rafraîchir les données", type= "secondary", use_container_width=True):
         st.rerun()
 
 tab_commandes, tab_sav, tab_test = st.tabs([
@@ -103,6 +106,12 @@ try:
                             st.write(f"**Montant Total :** {cmd['montant_total']} €")
                             st.write(f"**Urgent :** {'Oui' if urgente else 'Non'}")
                             st.write(f"**Date de création :** {cmd.get('date_creation', 'N/A')}")
+
+                            # --- AJOUT DE L'AFFICHAGE DU MAIL ---
+                            if cmd.get("contenu_email"):
+                                with st.expander("📄 Afficher l'e-mail d'origine"):
+                                    st.text(cmd["contenu_email"])
+                            # ------------------------------------
                             
                             st.write("**Articles détectés :**")
                             articles = cmd.get("articles", [])
@@ -185,10 +194,11 @@ try:
                         f"{API_URL}/commandes/analyser",
                         json={"contenu_email": texte_email},
                         headers=HEADERS,
-                        timeout=5
+                        timeout=120
                     )
                     if test_res.status_code == 202:
-                        st.success("E-mail envoyé avec succès ! L'IA le traite en arrière-plan. Rafraîchis la page dans 2-3 secondes.")
+                        st.success("E-mail analysé et enregistré avec succès !")
+                        st.rerun()
                     else:
                         st.error(f"Erreur lors de l'analyse (Code {test_res.status_code}).")
 

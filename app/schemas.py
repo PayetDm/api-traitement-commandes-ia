@@ -23,6 +23,8 @@ class CommandeSchema(BaseModel):
 
     id: int
     client: str = Field(min_length=1, max_length=200)
+    message_id: Optional[str] = None
+    contenu_email: Optional[str] = None
     email_client: Optional[str] = Field(default=None, max_length=320)
     montant_total: float = Field(ge=0, le=100000000, allow_inf_nan=False)
     urgente: bool

@@ -31,3 +31,5 @@ streamlit
 apscheduler
 slowapi==0.1.9
 ollama
+langfuse>=4.15.2
+

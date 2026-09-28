@@ -4,17 +4,16 @@ services:
     image: postgres@sha256:fe0737ba566a2c5b2a28f34433c0a423261900ec17b9bf7ad115e1aae7e57f1b
     container_name: bdd_postgres
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-dev_user}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dev_password}
-      POSTGRES_DB: ${POSTGRES_DB:-commandes_db}
-    # Ports fermés à l'extérieur : accessible uniquement via le réseau interne
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     networks:
       - backend_net
     restart: always
 
-  # API FastAPI (Bridge entre Frontend et Backend)
+  # API FastAPI
   api:
     build: .
     container_name: api_fastapi
@@ -23,14 +22,25 @@ services:
       - "127.0.0.1:8000:8000"
     environment:
       - API_KEY=${API_KEY}
-      - DATABASE_URL=${DATABASE_URL}
-      - OLLAMA_URL=http://ollama:11434
+      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      - OLLAMA_URL=http://service_ollama:11434
+      - OLLAMA_MODEL=${OLLAMA_MODEL}
+      # Langfuse observability configuration (v4)
+      - LANGFUSE_ENABLED=${LANGFUSE_ENABLED:-true}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=http://service_langfuse:3000
       - MAILHOG_API_URL=${MAILHOG_API_URL}
       - MAILHOG_DELETE_URL=${MAILHOG_DELETE_URL}
     depends_on:
-      - postgres
-      - ollama
-      - mailhog
+      postgres:
+        condition: service_started
+      ollama:
+        condition: service_started
+      mailhog:
+        condition: service_started
+      langfuse:
+        condition: service_started
     networks:
       - backend_net
       - frontend_net
@@ -56,30 +66,191 @@ services:
   ollama:
     image: ollama/ollama@sha256:08ddf4b4dbfdc4fc1f5b0fe535915998581085402e307b57bb308db68460e372
     container_name: service_ollama
-    # Ports fermés à l'extérieur : accessible uniquement par l'API
     volumes:
       - ollama_data:/root/.ollama
     networks:
       - backend_net
     restart: always
 
-  # Serveur de mail de test local (MailHog)
+  # MailHog
   mailhog:
     image: mailhog/mailhog@sha256:8d76a3d4ffa32a3661311944007a415332c4bb855657f4f6c57996405c009bea
     container_name: service_mailhog
     ports:
-      - "127.0.0.1:8025:8025" # Interface Web de consultation uniquement
+      - "127.0.0.1:8025:8025"
     networks:
       - backend_net
     restart: always
 
+  # Langfuse Interface & Server
+  langfuse:
+    image: langfuse/langfuse:3
+    container_name: service_langfuse
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - DATABASE_URL=postgresql://langfuse:${LANGFUSE_DB_PASSWORD}@langfuse_db:5432/langfuse
+      - HOSTNAME=0.0.0.0
+      - NEXTAUTH_URL=http://localhost:3000
+      - NEXTAUTH_SECRET=${LANGFUSE_NEXTAUTH_SECRET}
+      - SALT=${LANGFUSE_SALT}
+      - ENCRYPTION_KEY=${LANGFUSE_ENCRYPTION_KEY}
+      - CLICKHOUSE_URL=http://langfuse_clickhouse:8123
+      - CLICKHOUSE_MIGRATION_URL=clickhouse://langfuse_clickhouse:9000
+      - CLICKHOUSE_USER=langfuse
+      - CLICKHOUSE_PASSWORD=${LANGFUSE_CLICKHOUSE_PASSWORD}
+      - CLICKHOUSE_CLUSTER_ENABLED=false
+      - REDIS_CONNECTION_STRING=redis://langfuse_redis:6379
+      - LANGFUSE_S3_EVENT_UPLOAD_BUCKET=langfuse-events
+      - LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT=http://langfuse-minio:9000
+      - LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID=${LANGFUSE_S3_ACCESS_KEY}
+      - LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY=${LANGFUSE_S3_SECRET_KEY}
+      - LANGFUSE_S3_EVENT_UPLOAD_REGION=${LANGFUSE_S3_REGION}
+      - LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE=true
+      - S3_ENDPOINT=http://langfuse-minio:9000
+      - S3_BUCKET_NAME=langfuse-events
+      - S3_ACCESS_KEY_ID=${LANGFUSE_S3_ACCESS_KEY}
+      - S3_SECRET_ACCESS_KEY=${LANGFUSE_S3_SECRET_KEY}
+      - S3_FORCE_PATH_STYLE=true
+      - AWS_REGION=${LANGFUSE_S3_REGION}
+      - TELEMETRY_ENABLED=${LANGFUSE_TELEMETRY_ENABLED:-false}
+      # Désactivation des fonctionnalités expérimentales v4
+      - LANGFUSE_ENABLE_EVENTS_TABLE_OBSERVATIONS=false
+      - LANGFUSE_ENABLE_EVENTS_TABLE_UI=false
+    healthcheck:
+      disable: true
+    depends_on:
+      langfuse_db:
+        condition: service_started
+      langfuse_clickhouse:
+        condition: service_started
+      langfuse_redis:
+        condition: service_started
+      langfuse_minio:
+        condition: service_started
+      langfuse_minio_init:
+        condition: service_completed_successfully
+    networks:
+      - backend_net
+    restart: always
+
+  langfuse-worker:
+    image: langfuse/langfuse-worker:3
+    container_name: service_langfuse_worker
+    restart: always
+    depends_on:
+      langfuse_db:
+        condition: service_started
+      langfuse_clickhouse:
+        condition: service_started
+      langfuse_redis:
+        condition: service_started
+      langfuse_minio:
+        condition: service_started
+    environment:
+      - DATABASE_URL=postgresql://langfuse:${LANGFUSE_DB_PASSWORD}@langfuse_db:5432/langfuse
+      - SALT=${LANGFUSE_SALT}
+      - ENCRYPTION_KEY=${LANGFUSE_ENCRYPTION_KEY}
+      - CLICKHOUSE_URL=http://langfuse_clickhouse:8123
+      - CLICKHOUSE_MIGRATION_URL=clickhouse://langfuse_clickhouse:9000
+      - CLICKHOUSE_USER=langfuse
+      - CLICKHOUSE_PASSWORD=${LANGFUSE_CLICKHOUSE_PASSWORD}
+      - CLICKHOUSE_CLUSTER_ENABLED=false
+      - REDIS_CONNECTION_STRING=redis://langfuse_redis:6379
+      - LANGFUSE_S3_EVENT_UPLOAD_BUCKET=langfuse-events
+      - LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT=http://langfuse-minio:9000
+      - LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID=${LANGFUSE_S3_ACCESS_KEY}
+      - LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY=${LANGFUSE_S3_SECRET_KEY}
+      - LANGFUSE_S3_EVENT_UPLOAD_REGION=${LANGFUSE_S3_REGION}
+      - LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE=true
+      - TELEMETRY_ENABLED=${LANGFUSE_TELEMETRY_ENABLED:-false}
+    networks:
+      - backend_net
+  
+  langfuse_db:
+    image: postgres:15-alpine
+    container_name: bdd_langfuse
+    environment:
+      POSTGRES_USER: langfuse
+      POSTGRES_PASSWORD: ${LANGFUSE_DB_PASSWORD}
+      POSTGRES_DB: langfuse
+    volumes:
+      - langfuse_postgres_data:/var/lib/postgresql/data
+    networks:
+      - backend_net
+    restart: always
+
+  langfuse_clickhouse:
+    image: clickhouse/clickhouse-server:24.3
+    container_name: bdd_langfuse_clickhouse
+    environment:
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_USER: langfuse
+      CLICKHOUSE_PASSWORD: ${LANGFUSE_CLICKHOUSE_PASSWORD}
+    volumes:
+      - langfuse_clickhouse_data:/var/lib/clickhouse
+      - langfuse_clickhouse_logs:/var/log/clickhouse-server
+    networks:
+      - backend_net
+    restart: always
+
+  langfuse_redis:
+    image: redis:7-alpine
+    container_name: cache_langfuse
+    volumes:
+      - langfuse_redis_data:/data
+    networks:
+      - backend_net
+    restart: always
+
+  langfuse_minio:
+    image: quay.io/minio/minio:latest
+    container_name: langfuse-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${LANGFUSE_S3_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${LANGFUSE_S3_SECRET_KEY}
+      AWS_REGION: ${LANGFUSE_S3_REGION}
+    volumes:
+      - langfuse_minio_data:/data
+    networks:
+      - backend_net
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 1s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: always
+
+  langfuse_minio_init:
+    image: quay.io/minio/mc:latest
+    container_name: langfuse-minio-init
+    depends_on:
+      langfuse_minio:
+        condition: service_healthy
+    entrypoint: /bin/sh
+    command: >-
+      -c "mc alias set local http://langfuse-minio:9000
+      ${LANGFUSE_S3_ACCESS_KEY} ${LANGFUSE_S3_SECRET_KEY}
+      && mc mb --ignore-existing local/langfuse-events
+      && mc mb --ignore-existing local/langfuse"
+    networks:
+      - backend_net
+    restart: "no"
+
 networks:
   backend_net:
     driver: bridge
-    internal: true
   frontend_net:
     driver: bridge
 
 volumes:
   postgres_data:
   ollama_data:
+  langfuse_postgres_data:
+  langfuse_clickhouse_data:
+  langfuse_clickhouse_logs:
+  langfuse_redis_data:
+  langfuse_minio_data:

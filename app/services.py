@@ -1,14 +1,46 @@
 import json
 import logging
+import os
+
 import requests
+
 from app.schemas import CommandeIAOutput
+
+try:
+    from langfuse import get_client, observe
+except ImportError:  # Permet de lancer l'API avant l'installation des dépendances.
+    get_client = None
+    observe = None
 
 logger = logging.getLogger(__name__)
 
-OLLAMA_URL = "http://ollama:11434/api/generate"
-MODELE_IA = "qwen2.5:1.5b"
+OLLAMA_URL = os.getenv("OLLAMA_URL", "http://ollama:11434")
+if not OLLAMA_URL.endswith("/api/generate"):
+    OLLAMA_URL = f"{OLLAMA_URL.rstrip('/')}/api/generate"
+MODELE_IA = os.getenv("OLLAMA_MODEL", "llama3.2:3b")
+LANGFUSE_ENABLED = os.getenv("LANGFUSE_ENABLED", "false").lower() == "true"
+LANGFUSE_CONFIGURED = bool(
+    os.getenv("LANGFUSE_PUBLIC_KEY") and os.getenv("LANGFUSE_SECRET_KEY")
+)
+LANGFUSE_CLIENT = (
+    get_client()
+    if LANGFUSE_ENABLED and LANGFUSE_CONFIGURED and get_client is not None
+    else None
+)
 
 
+def _observe_analyse(fonction):
+    if observe is None or LANGFUSE_CLIENT is None:
+        return fonction
+    return observe(
+        name="analyser_mail_avec_llm",
+        as_type="generation",
+        capture_input=True,
+        capture_output=True,
+    )(fonction)
+
+
+@_observe_analyse
 def analyser_mail_avec_llm(texte_email: str) -> dict:
     prompt = f"""
     Tu es un assistant de tri et d'extraction de données.
@@ -20,7 +52,7 @@ def analyser_mail_avec_llm(texte_email: str) -> dict:
     - articles (liste d'objets avec : nom, quantite, prix_unitaire)
 
     Texte de l'e-mail :
-    \"\"\"{texte_email}\"\"\"
+    {texte_email}
 
     Reponds UNIQUEMENT avec le JSON valide, sans texte d'introduction ni explications.
     """
@@ -34,27 +66,32 @@ def analyser_mail_avec_llm(texte_email: str) -> dict:
 
     try:
         logger.info("Envoi de la requete a Ollama...")
-        response = requests.post(OLLAMA_URL, json=payload, timeout=30)
+        response = requests.post(OLLAMA_URL, json=payload, timeout=120)
         response.raise_for_status()
 
         resultat = response.json()
         raw_json = json.loads(resultat.get("response", "{}"))
-        
-        # 1. Validation Pydantic Stricte
         data_validee = CommandeIAOutput(**raw_json)
         data_dict = data_validee.model_dump()
 
-        # 2. Gardien Python (Correction des faux positifs du LLM)
-        if data_dict["est_une_commande"] and len(data_dict["articles"]) == 0 and data_dict["montant_total"] == 0.0:
+        if (
+            data_dict["est_une_commande"]
+            and not data_dict["articles"]
+            and data_dict["montant_total"] == 0.0
+        ):
             logger.info("Gardien Python : Redirection SAV (aucun article ni montant).")
             data_dict["est_une_commande"] = False
 
         logger.info("Analyse IA terminee avec succes.")
         return data_dict
-
-    except requests.exceptions.RequestException as e:
-        logger.error("Erreur HTTP/Ollama : %s", e)
+    except requests.exceptions.RequestException as error:
+        logger.error("Erreur HTTP/Ollama : %s", error)
         return {"est_une_commande": False, "client": "Erreur Ollama"}
-    except Exception as e:
-        logger.error("Erreur lors du parsing du JSON IA : %s", e)
-        return {"est_une_commande": False, "client": "Message non structuré (SAV)", "articles": [], "montant_total": 0.0}
+    except Exception as error:
+        logger.error("Erreur lors du parsing du JSON IA : %s", error)
+        return {
+            "est_une_commande": False,
+            "client": "Message non structure (SAV)",
+            "articles": [],
+            "montant_total": 0.0,
+        }

@@ -1,12 +1,15 @@
 import json
 import logging
+import os
 import re
 import requests
 
 logger = logging.getLogger(__name__)
 
-OLLAMA_API_URL = "http://ollama:11434/api/generate"
-MODEL_NAME = "qwen2.5:1.5b"
+OLLAMA_API_URL = os.getenv("OLLAMA_URL", "http://ollama:11434")
+if not OLLAMA_API_URL.endswith("/api/generate"):
+    OLLAMA_API_URL = f"{OLLAMA_API_URL.rstrip('/')}/api/generate"
+MODEL_NAME = os.getenv("OLLAMA_MODEL", "llama3.2:3b")
 MAX_EMAIL_LENGTH = 3000  # Limite la taille pour éviter les attaques DoS
 
 

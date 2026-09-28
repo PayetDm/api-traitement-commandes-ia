@@ -38,6 +38,8 @@ def sauvegarder_commande(db: Session, data: dict) -> Commande:
 
     nouvelle_commande = Commande(
         client=data.get("client", "Client Inconnu"),
+        message_id=data.get("message_id"),
+        contenu_email=data.get("contenu_email"),
         montant_total=data.get("montant_total", 0.0),
         urgente=1 if data.get("urgente", False) else 0,
         statut=statut_final,

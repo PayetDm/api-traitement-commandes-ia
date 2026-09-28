@@ -80,6 +80,8 @@ def relever_et_traiter_emails(db: Session):
 
             donnees_commande = {
                 "client": expediteur,
+                "message_id": msg_id,
+                "contenu_email": corps_mail,
                 "email_client": expediteur,
                 "montant_total": 0.0,
                 "urgente": "URGENT" in sujet.upper(),

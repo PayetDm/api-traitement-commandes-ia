@@ -1,17 +1,55 @@
-# Environnement virtuel
+# ============ Environnement virtuel ============
 .venv/
 venv/
+env/
+ENV/
 
-# Fichiers Python temporaires
+# ============ Python ============
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
 
-# Base de données locale (on ne versionne pas les données de test)
+# ============ Tests & Linters ============
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.tox/
+
+# ============ Base de données locale ============
 *.db
+*.sqlite3
 
-# Fichiers système
+# ============ IDE ============
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ============ Système ============
 .DS_Store
+Thumbs.db
 
-# Clé API
+# ============ Secrets (CRITIQUE) ============
 .env
+.env.local
+.env.*.local
 
+# ============ Logs ============
+*.log
+logs/
+
+# ============ Docker ============
+# On garde docker-compose.yml versionné (normal)
+# Mais on ignore les overrides locaux
+docker-compose.override.yml
+
+# ============ Config GitHub Copilot (local) ============
+.github/agents/
