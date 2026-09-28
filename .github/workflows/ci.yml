@@ -12,7 +12,7 @@ jobs:
 
     steps:
     - name: Récupérer le code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
 
     - name: Configurer Python
       uses: actions/setup-python@v5
@@ -34,7 +34,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Récupérer le code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
 
     - name: Configurer Python
       uses: actions/setup-python@v5
@@ -52,7 +52,7 @@ jobs:
       contents: read
     steps:
     - name: Récupérer tout l'historique
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
       with:
         fetch-depth: 0
 
