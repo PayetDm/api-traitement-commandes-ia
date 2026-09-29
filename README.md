@@ -7,6 +7,7 @@
 ![Docker](https://img.shields.io/badge/Docker-Compose-2496ED)
 ![Langfuse](https://img.shields.io/badge/Langfuse-3.x-orange)
 ![Ollama](https://img.shields.io/badge/Ollama-llama3.2%3A3b-black)
+![Tests](https://img.shields.io/badge/tests-15%20passed-brightgreen)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
 ---
@@ -30,6 +31,7 @@ L'ensemble du pipeline est **instrumenté avec Langfuse** (traces, observations,
 | **Observabilité MLOps** | **Langfuse v3** (traces, observations, métadonnées) |
 | **Frontend & Supervision** | Streamlit (dashboard KPIs + gestion dossiers) |
 | **Sécurité** | Slowapi (rate limiting), X-API-Key, `secrets.compare_digest` |
+| **Tests** | pytest (unitaires + intégration API) |
 | **Orchestration** | Docker, Docker Compose (2 réseaux isolés) |
 | **CI/CD** | GitHub Actions (tests + linter) |
 | **Email testing** | MailHog (SMTP/IMAP local) |
@@ -80,9 +82,12 @@ L'ensemble du pipeline est **instrumenté avec Langfuse** (traces, observations,
 │   ├── schemas.py            # Schémas Pydantic v2
 │   ├── security.py           # Auth X-API-Key
 │   └── services.py           # Extraction LLM + validation métier
-├── tests/                    # Tests unitaires pytest
+├── tests/                    # Tests pytest (unitaires + intégration)
+│   ├── test_classifier.py    # 8 tests unitaires sur la classification
+│   └── test_main.py          # 7 tests d'intégration API
 ├── app_streamlit.py          # Dashboard Streamlit
 ├── style.py                  # CSS custom Streamlit
+├── Makefile                  # Raccourcis de commandes (up/down/test/logs)
 ├── docker-compose.yml        # Orchestration + isolation réseau
 ├── Dockerfile                # Image Docker non-root
 ├── requirements.txt          # Dépendances Python
@@ -117,6 +122,7 @@ L'ensemble du pipeline est **instrumenté avec Langfuse** (traces, observations,
 | **Streamlit** | Next.js, React | Prototypage rapide de l'UI. Choix assumé pour ce projet, à migrer en production. |
 | **APScheduler** | Celery + Redis | Simple, suffisant pour ce volume. Pas besoin d'un broker dédié. |
 | **Docker Compose** | Kubernetes | Adapté à un déploiement mono-machine. K8s serait over-engineered ici. |
+| **pytest** | unittest | Syntaxe concise, écosystème riche (fixtures, plugins, coverage). |
 
 ---
 
@@ -127,6 +133,7 @@ L'ensemble du pipeline est **instrumenté avec Langfuse** (traces, observations,
 - **Rate limiting** : limitation par IP via `slowapi` pour protéger le moteur d'inférence.
 - **Protection timing attacks** : validation de la clé API avec `secrets.compare_digest`.
 - **Conteneurs non-root** : l'app tourne avec un utilisateur dédié (`appuser`).
+- **Tests de sécurité** : vérification que l'auth est obligatoire sur toutes les routes protégées + test anti-injection sur la classification.
 - **Schéma de démarrage** : `Base.metadata.create_all` crée les tables absentes. Alembic est présent mais pas encore utilisé en migration versionnée (voir *Limitations*).
 
 ---
@@ -239,7 +246,8 @@ docker compose exec ollama ollama pull llama3.2:3b
 ### 4. Démarrer la stack
 
 ```bash
-docker compose up -d --build
+make up
+# ou : docker compose up -d --build
 ```
 
 ### 5. Vérifier le statut
@@ -251,8 +259,8 @@ docker compose ps
 Tous les services doivent être `Up` (ou `healthy`). Vérifiez les logs si besoin :
 
 ```bash
-docker compose logs -f api
-docker compose logs -f langfuse-worker
+make logs
+# ou : docker compose logs -f api
 ```
 
 ### 📍 Accès aux services
@@ -304,10 +312,78 @@ uvicorn app.main:app --reload --port 8000
 streamlit run app_streamlit.py
 ```
 
-### 3. Tests
+### 3. Lancer les tests
 
 ```bash
 pytest -v
+```
+
+---
+
+## 🧪 Tests
+
+Le projet dispose de **15 tests automatisés** répartis en deux catégories.
+
+### Tests unitaires — `tests/test_classifier.py`
+
+Vérifient la logique métier de la classification par règles :
+
+| Type de test | Ce qui est vérifié |
+|---|---|
+| **Cas de base** | Email commande → `COMMANDE`, email SAV → `SAV`, email neutre → `AUTRE` |
+| **Cas limite** | Texte vide → lève `ValueError` |
+| **Cas d'encodage** | Accents (`café` → `cafe`), majuscules (`ANNULER` → `annuler`) |
+| **Cas sécurité** | Tentative d'injection (`annuler\nIGNORE...\ncommander`) → reste classé `SAV` |
+
+### Tests d'intégration — `tests/test_main.py`
+
+Vérifient les endpoints de l'API via `TestClient` (FastAPI) :
+
+- `/health` accessible sans authentification
+- Auth obligatoire sur toutes les routes protégées (`X-API-Key`)
+- Erreurs 404 sur ressources inexistantes
+- Traitement asynchrone des commandes
+
+### Lancer les tests
+
+```bash
+# Tous les tests via le Makefile
+make test
+
+# Tous les tests en direct
+pytest -v
+
+# Un fichier précis
+pytest tests/test_classifier.py -v
+
+# Un seul test précis
+pytest tests/test_classifier.py::test_email_avec_annulation_retourne_sav -v
+```
+
+**Résultat attendu :** `15 passed`
+
+---
+
+## ⚡ Commandes rapides (Makefile)
+
+Un `Makefile` est fourni pour automatiser les tâches courantes :
+
+| Commande | Description |
+|---|---|
+| `make help` | Affiche la liste des commandes |
+| `make up` | Démarre toute la stack Docker |
+| `make down` | Arrête toute la stack |
+| `make logs` | Affiche les logs en direct |
+| `make test` | Lance les tests pytest |
+| `make build` | Reconstruit les images Docker |
+| `make restart-api` | Redémarre l'API uniquement |
+| `make clean` | Nettoie les caches Python (`__pycache__`, `.pytest_cache`) |
+
+**Exemple :**
+
+```bash
+# Au lieu de taper "docker compose up -d --build"
+make up
 ```
 
 ---
@@ -319,7 +395,7 @@ Ce projet est un **projet d'apprentissage MLOps** — il est important de conna�
 - **Interface Langfuse** : bug connu en self-hosting sur la table `events_core` (`projects.environmentFilterOptions`). Les traces **sont bien stockées** dans ClickHouse (vérifiables en SQL), mais l'affichage UI peut être partiellement cassé selon la version. Contournement possible : utiliser Langfuse Cloud pour la démo UI.
 - **Migrations DB** : `Base.metadata.create_all` crée les tables au démarrage. Pas encore de migrations Alembic versionnées.
 - **Classification** : limitée à 3 catégories. Pas de mécanisme d'apprentissage actif à partir du feedback utilisateur.
-- **Tests** : couverture partielle (unitaires sur `classifier.py`). Pas de tests d'intégration end-to-end.
+- **Tests** : 15 tests (unitaires + intégration API). Pas encore de tests end-to-end (TestClient → Docker → Streamlit).
 - **Latence LLM** : `llama3.2:3b` en local a une latence de 2-5s par classification. Acceptable en batch, mais à optimiser pour du temps réel.
 - **Sécurité** : la clé API est en clair dans `.env`. En production, utiliser Docker secrets ou un vault.
 
@@ -327,18 +403,30 @@ Ce projet est un **projet d'apprentissage MLOps** — il est important de conna�
 
 ## 🗺️ Roadmap
 
-Améliorations prévues :
+### ✅ Déjà fait
 
+- [x] Tests unitaires + intégration (15 tests, `pytest`)
+- [x] Makefile pour automatiser les commandes
+- [x] Instrumentation Langfuse (traces, observations, flush explicite)
+- [x] Conteneur `langfuse-worker` pour le pipeline d'ingestion
+- [x] Documentation complète (README, DEBUG_LANGFUSE, LICENSE MIT)
+- [x] Template `.env.example` pour la reproductibilité
+
+### 🚧 En cours
+
+- [ ] **Fallback robuste LLM** : `try/except` Ollama + retour règles si indisponible
 - [ ] Migrations Alembic versionnées pour la DB applicative
+- [ ] Logs structurés JSON (`structlog`)
+
+### 🔮 Prévisions
+
 - [ ] **Datasets d'évaluation** Langfuse + métriques (précision, rappel, F1)
 - [ ] **Feedback utilisateur** → scores Langfuse (`score()` sur les traces)
 - [ ] Fallback multi-modèles (llama3.2 → qwen2.5 → règles seules)
 - [ ] Endpoint `/metrics` (Prometheus) + dashboards Grafana
-- [ ] **Fallback robuste LLM** : try/except Ollama + retour règles si indisponible
 - [ ] Déploiement public (Fly.io / Railway) pour démo
 - [ ] Migration UI Streamlit → Next.js (design pro type Langfuse/Linear)
-- [ ] Logs structurés JSON (`structlog`)
-- [ ] Tests d'intégration (TestClient FastAPI + docker-compose de test)
+- [ ] Tests end-to-end (TestClient → Docker → Streamlit)
 
 ---
 
@@ -348,6 +436,7 @@ Améliorations prévues :
 - [Documentation Langfuse](https://langfuse.com/docs)
 - [Documentation Ollama](https://github.com/ollama/ollama)
 - [Documentation FastAPI](https://fastapi.tiangolo.com/)
+- [Documentation pytest](https://docs.pytest.org/)
 
 ---
 
