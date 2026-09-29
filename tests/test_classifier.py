@@ -18,7 +18,7 @@ from app.classifier import (
 # ============================================================
 
 def test_email_avec_annulation_retourne_sav():
-    """Un email contenant 'annuler' doit être classé en SAV."""
+    """Un email contenant 'annuler' doit être classé en SERVICE_CLIENT."""
     # ARRANGE
     texte = "Je voudrais annuler ma commande s'il vous plaît"
 
@@ -26,7 +26,7 @@ def test_email_avec_annulation_retourne_sav():
     resultat = classer_email_par_regles(texte)
 
     # ASSERT
-    assert resultat == TypeEmail.SAV
+    assert resultat == TypeEmail.SERVICE_CLIENT
 
 
 def test_email_avec_commander_retourne_commande():
@@ -72,7 +72,7 @@ def test_email_avec_majuscules_est_bien_normalise():
     resultat = classer_email_par_regles(texte)
 
     # ASSERT
-    assert resultat == TypeEmail.SAV
+    assert resultat == TypeEmail.SERVICE_CLIENT
 
 
 def test_normaliser_enleve_les_accents():
@@ -107,4 +107,56 @@ def test_email_avec_injection_ne_detourne_pas_la_classification():
     resultat = classer_email_par_regles(texte)
 
     # ASSERT — priorité SAV sur commande (règle volontaire)
+    assert resultat == TypeEmail.SERVICE_CLIENT
+
+
+# ============================================================
+# Tests de la nouvelle catégorie SERVICE_CLIENT
+# ============================================================
+
+def test_email_avec_remboursement_retourne_service_client():
+    """Un email demandant un remboursement doit être classé en SERVICE_CLIENT."""
+    # ARRANGE
+    texte = "Je souhaite un remboursement pour ma dernière commande"
+
+    # ACT
+    resultat = classer_email_par_regles(texte)
+
+    # ASSERT
+    assert resultat == TypeEmail.SERVICE_CLIENT
+
+
+def test_email_avec_produit_casse_retourne_sav():
+    """Un email signalant un produit défectueux doit être classé en SAV."""
+    # ARRANGE
+    texte = "Ma perceuse est arrivée cassée, elle ne fonctionne pas"
+
+    # ACT
+    resultat = classer_email_par_regles(texte)
+
+    # ASSERT
     assert resultat == TypeEmail.SAV
+
+
+def test_email_avec_probleme_et_produit_retourne_sav():
+    """Règle spéciale : 'probleme' + mot produit → SAV (pas SERVICE_CLIENT)."""
+    # ARRANGE
+    texte = "J'ai un probleme avec la visseuse que j'ai achetée"
+
+    # ACT
+    resultat = classer_email_par_regles(texte)
+
+    # ASSERT
+    assert resultat == TypeEmail.SAV
+
+
+def test_email_avec_retard_colis_retourne_commande():
+    """Un email sur un retard de colis doit être classé en COMMANDE."""
+    # ARRANGE
+    texte = "Mon colis est en retard, où est ma livraison ?"
+
+    # ACT
+    resultat = classer_email_par_regles(texte)
+
+    # ASSERT
+    assert resultat == TypeEmail.COMMANDE

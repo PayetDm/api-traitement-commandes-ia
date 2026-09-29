@@ -32,4 +32,4 @@ apscheduler
 slowapi==0.1.9
 ollama
 langfuse>=4.15.2
-
+nltk>=3.9.0
