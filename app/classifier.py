@@ -95,8 +95,16 @@ async def classer_email_hybride(texte: str) -> str:
         method = "deterministic_rules"
         res = categorie.value
     else:
-        method = "ollama_llm"
-        res = await classer_email_avec_llm(texte)
+        # Fallback : si le LLM plante, on retourne "autre" (fail-safe)
+        try:
+            res = await classer_email_avec_llm(texte)
+            method = "ollama_llm"
+        except Exception as e:
+            logger.warning(
+                f"LLM indisponible, fallback fail-safe sur 'autre' : {e}"
+            )
+            res = "autre"
+            method = "llm_unavailable_fallback"
 
     # Mise à jour de l'observation courante avec la méthode utilisée
     langfuse = get_client()
