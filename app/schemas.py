@@ -6,7 +6,7 @@ StatutCommande = Literal[
     "traitee",
     "expediee",
     "transfere_sav",
-    "a_verifier_manuellement",
+    "transfere_service_client",
     "erreur_technique",
 ]
 

@@ -1,9 +1,11 @@
+import asyncio
 import json
 import logging
 import os
 
 import requests
 
+from app.classifier import classer_email_hybride
 from app.schemas import CommandeIAOutput
 
 try:
@@ -38,6 +40,31 @@ def _observe_analyse(fonction):
         capture_input=True,
         capture_output=True,
     )(fonction)
+
+
+def _classifier_email(texte_email: str) -> str:
+    """
+    Classifie l'email en 4 catégories :
+    - commande
+    - sav
+    - service_client
+    - autre (fallback vers service_client)
+
+    Utilise le classifieur hybride (règles + stemming + LLM).
+    """
+    try:
+        categorie = asyncio.run(classer_email_hybride(texte_email))
+        logger.info("Classification IA : %s", categorie)
+        # Le classifieur renvoie "autre" si aucune règle ne matche,
+        # on redirige vers service_client (traitement humain).
+        if categorie == "autre":
+            return "service_client"
+        return categorie
+    except Exception as e:
+        logger.warning(
+            "Echec de la classification, fallback sur 'service_client' : %s", e
+        )
+        return "service_client"
 
 
 @_observe_analyse
@@ -82,11 +109,18 @@ def analyser_mail_avec_llm(texte_email: str) -> dict:
             logger.info("Gardien Python : Redirection SAV (aucun article ni montant).")
             data_dict["est_une_commande"] = False
 
+        # Classification via le classifieur hybride (règles + stemming + LLM)
+        data_dict["categorie"] = _classifier_email(texte_email)
+
         logger.info("Analyse IA terminee avec succes.")
         return data_dict
     except requests.exceptions.RequestException as error:
         logger.error("Erreur HTTP/Ollama : %s", error)
-        return {"est_une_commande": False, "client": "Erreur Ollama"}
+        return {
+            "est_une_commande": False,
+            "client": "Erreur Ollama",
+            "categorie": "service_client",
+        }
     except Exception as error:
         logger.error("Erreur lors du parsing du JSON IA : %s", error)
         return {
@@ -94,4 +128,5 @@ def analyser_mail_avec_llm(texte_email: str) -> dict:
             "client": "Message non structure (SAV)",
             "articles": [],
             "montant_total": 0.0,
+            "categorie": "service_client",
         }

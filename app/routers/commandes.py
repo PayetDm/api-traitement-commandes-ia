@@ -23,13 +23,26 @@ def _analyser_en_arriere_plan(contenu_email: str, message_id: str | None = None)
     try:
         data = analyser_mail_avec_llm(contenu_email)
         articles = [Article(**article) for article in data.get("articles", [])]
+
+        # Détermine le statut en fonction de la classification
+        categorie = data.get("categorie", "autre")
+        if categorie == "commande":
+            statut_initial = "en_attente"
+        elif categorie == "sav":
+            statut_initial = "transfere_sav"
+        elif categorie == "service_client":
+            statut_initial = "transfere_service_client"
+        else:
+            # Fallback : on met en service_client (traitement humain)
+            statut_initial = "transfere_service_client"
+
         commande = Commande(
             client=data.get("client", "Client Inconnu"),
             message_id=message_id,
             contenu_email=contenu_email,
             montant_total=data.get("montant_total", 0.0),
             urgente=1 if data.get("urgente", False) else 0,
-            statut=("en_attente" if data.get("est_une_commande", False) else "transfere_sav"),
+            statut=statut_initial,
             articles=articles,
         )
         db.add(commande)
@@ -98,8 +111,9 @@ def statistiques(
         ).scalar(),
         "commandes_urgentes": db.query(Commande)
         .filter(Commande.urgente == 1)
+        .filter(Commande.statut.notin_(["expediee", "traitee"]))
         .count(),
-        "dossiers_a_verifier": db.query(Commande)
-        .filter(Commande.statut == "a_verifier_manuellement")
+        "en_service_client": db.query(Commande)
+        .filter(Commande.statut == "transfere_service_client")
         .count(),
     }
