@@ -1,5 +1,5 @@
 # 1. Image de base : Python 3.11 version légère (slim)
-FROM python:3.11-slim
+FROM python:3.14-slim
 
 # Évite la création de fichiers .pyc et force l'affichage immédiat des logs
 ENV PYTHONDONTWRITEBYTECODE=1
