@@ -17,6 +17,9 @@ class Commande(Base):
     urgente = Column(Integer, default=0)  # 1 si urgente, 0 sinon
     statut = Column(String, default="en_attente")
 
+    # ─── Observabilité MLOps ───
+    langfuse_trace_id = Column(String, nullable=True, index=True)
+
     # Relation 1-à-plusieurs avec les articles
     articles = relationship(
         "Article", back_populates="commande", cascade="all, delete-orphan"

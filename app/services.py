@@ -42,29 +42,37 @@ def _observe_analyse(fonction):
     )(fonction)
 
 
-def _classifier_email(texte_email: str) -> str:
+def _classifier_email(texte_email: str) -> tuple[str, str | None]:
     """
-    Classifie l'email en 4 catégories :
-    - commande
-    - sav
-    - service_client
-    - autre (fallback vers service_client)
-
-    Utilise le classifieur hybride (règles + stemming + LLM).
+    Classifie l'email en 4 catégories.
+    Retourne (categorie, langfuse_trace_id).
     """
     try:
+        # Récupère le client Langfuse AVANT l'appel pour capturer l'ID de trace
+        from langfuse import get_client
+        langfuse = get_client()
+        
         categorie = asyncio.run(classer_email_hybride(texte_email))
         logger.info("Classification IA : %s", categorie)
-        # Le classifieur renvoie "autre" si aucune règle ne matche,
-        # on redirige vers service_client (traitement humain).
+        
+        # Récupère l'ID de la trace courante
+        trace_id = None
+        try:
+            current_trace = langfuse.get_current_trace_id()
+            trace_id = current_trace
+            logger.debug("Trace Langfuse : %s", trace_id)
+        except Exception as e:
+            logger.debug("Impossible de récupérer l'ID de trace : %s", e)
+        
         if categorie == "autre":
-            return "service_client"
-        return categorie
+            return "service_client", trace_id
+        return categorie, trace_id
     except Exception as e:
         logger.warning(
             "Echec de la classification, fallback sur 'service_client' : %s", e
         )
-        return "service_client"
+        return "service_client", None
+    
 
 def _nettoyer_json_llm(raw: dict) -> dict:
     """
@@ -156,7 +164,9 @@ def analyser_mail_avec_llm(texte_email: str) -> dict:
             data_dict["est_une_commande"] = False
 
         # Classification via le classifieur hybride (règles + stemming + LLM)
-        data_dict["categorie"] = _classifier_email(texte_email)
+        categorie, trace_id = _classifier_email(texte_email)
+        data_dict["categorie"] = categorie
+        data_dict["langfuse_trace_id"] = trace_id
 
         logger.info("Analyse IA terminee avec succes.")
         return data_dict

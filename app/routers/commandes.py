@@ -4,6 +4,7 @@ import logging
 from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlalchemy.orm import Session
+from langfuse import get_client
 
 from app.database import SessionLocal, get_db
 from app.services import analyser_mail_avec_llm
@@ -43,6 +44,7 @@ def _analyser_en_arriere_plan(contenu_email: str, message_id: str | None = None)
             montant_total=data.get("montant_total", 0.0),
             urgente=1 if data.get("urgente", False) else 0,
             statut=statut_initial,
+            langfuse_trace_id=data.get("langfuse_trace_id"),
             articles=articles,
         )
         db.add(commande)
@@ -157,5 +159,30 @@ def rediriger_commande(
         f"Dossier #{commande_id} redirigé : {ancien_statut} → {nouveau_statut} "
         f"(correction humaine)"
     )
+
+    # ─── Feedback loop MLOps : envoyer un score à Langfuse ───
+    if commande.langfuse_trace_id:
+        try:
+            langfuse = get_client()
+            langfuse.create_score(
+                trace_id=commande.langfuse_trace_id,
+                name="classification_accuracy",
+                value=0.0,  # 0.0 = correction humaine = classification IA incorrecte
+                comment=(
+                    f"Redirigé manuellement : {ancien_statut} → {nouveau_statut}"
+                ),
+            )
+            langfuse.flush()
+            logger.info(
+                f"Score Langfuse envoyé (0.0) sur la trace "
+                f"{commande.langfuse_trace_id}"
+            )
+        except Exception as e:
+            logger.warning(f"Impossible d'envoyer le score Langfuse : {e}")
+    else:
+        logger.debug(
+            f"Pas de trace Langfuse pour la commande #{commande_id}, "
+            f"score non envoyé"
+        )
 
     return commande
