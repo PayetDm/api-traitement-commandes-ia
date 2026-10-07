@@ -1,6 +1,6 @@
 # 🚀 Pipeline MLOps & Data Engineering — Traitement Intelligent d'E-mails
 
-> Système de classification et d'extraction d'e-mails de commandes, du mail brut au dashboard utilisateur, avec **tracing MLOps complet** (Langfuse), **inférence LLM locale** (Ollama) et **classification hybride** (règles + LLM).
+> Système de classification et d'extraction d'e-mails de commandes, du mail brut au dashboard utilisateur, avec **tracing MLOps complet** (Langfuse), **inférence LLM locale** (Ollama), **classification hybride** (règles + stemming + LLM) et **boucle de feedback Humain-in-the-Loop**.
 
 ![Python](https://img.shields.io/badge/Python-3.11-blue)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688)
@@ -14,9 +14,9 @@
 
 ## 📖 Vue d'ensemble
 
-Ce projet capture automatiquement des e-mails de commandes logistiques (MailHog en dev), les classifie selon 3 catégories (*commande*, *SAV*, *autre*) via une **approche hybride** — règles métier déterministes puis LLM local pour les cas ambigus —, en extrait les informations structurées (client, articles, montants, urgence), et les expose via une API FastAPI et un dashboard Streamlit.
+Ce projet capture automatiquement des e-mails de commandes logistiques (MailHog en dev), les classifie selon **4 catégories** (*commande*, *SAV*, *service client*, *autre*) via une **approche hybride** — règles métier déterministes + stemming français + LLM local pour les cas ambigus —, en extrait les informations structurées (client, articles, montants, urgence), et les expose via une API FastAPI et un dashboard Streamlit.
 
-L'ensemble du pipeline est **instrumenté avec Langfuse** (traces, observations, métadonnées) pour permettre l'analyse de performance, le debug et l'évaluation continue.
+L'ensemble du pipeline est **instrumenté avec Langfuse** (traces, observations, métadonnées, scores) pour permettre l'analyse de performance, le debug et l'évaluation continue. Une **boucle de feedback Humain-in-the-Loop** permet aux opérateurs de corriger les classifications de l'IA, chaque correction étant automatiquement tracée comme un signal de qualité.
 
 ---
 
@@ -26,12 +26,13 @@ L'ensemble du pipeline est **instrumenté avec Langfuse** (traces, observations,
 |---|---|
 | **Backend & API** | FastAPI, Uvicorn, Pydantic v2 |
 | **Moteur IA & LLM** | Ollama (`llama3.2:3b`), prompt engineering, inférence locale |
-| **Classification** | Hybride : règles déterministes + LLM fallback |
+| **Classification** | Hybride : règles + stemming (NLTK Snowball) + LLM fallback |
 | **Base de données & ORM** | PostgreSQL, SQLAlchemy 2.x |
-| **Observabilité MLOps** | **Langfuse v3** (traces, observations, métadonnées) |
-| **Frontend & Supervision** | Streamlit (dashboard KPIs + gestion dossiers) |
+| **Observabilité MLOps** | **Langfuse v3/v4** (traces, observations, scores HITL) |
+| **Frontend & Supervision** | Streamlit (dashboard 4 onglets + badges) |
 | **Sécurité** | Slowapi (rate limiting), X-API-Key, `secrets.compare_digest` |
-| **Tests** | pytest (unitaires + intégration API) |
+| **Résilience** | Circuit breaker LLM + fallback fail-safe |
+| **Tests** | pytest (15 tests unitaires + intégration API) |
 | **Orchestration** | Docker, Docker Compose (2 réseaux isolés) |
 | **CI/CD** | GitHub Actions (tests + linter) |
 | **Email testing** | MailHog (SMTP/IMAP local) |
@@ -65,32 +66,63 @@ L'ensemble du pipeline est **instrumenté avec Langfuse** (traces, observations,
 
 **Point critique MLOps :** le **Worker Langfuse** est un conteneur séparé et obligatoire. Sans lui, les traces restent bloquées dans MinIO et n'atteignent jamais ClickHouse.
 
+### Boucle de feedback Humain-in-the-Loop
+
+```text
+                  ┌──────────────────────┐
+                  │   Classification IA  │
+                  │   (règles + LLM)     │
+                  └──────────┬───────────┘
+                             │
+                             ▼
+                  ┌──────────────────────┐
+                  │   Trace Langfuse     │
+                  │   ID enregistré en DB│
+                  └──────────┬───────────┘
+                             │
+                  ┌──────────┴───────────┐
+                  │                      │
+                  ▼                      ▼
+          ┌───────────────┐      ┌───────────────┐
+          │  IA correcte  │      │  IA trompée   │
+          │  Pas d'action │      │  Opérateur    │
+          │               │      │  redirige     │
+          └───────────────┘      └───────┬───────┘
+                                         │
+                                         ▼
+                                ┌───────────────┐
+                                │ Score Langfuse│
+                                │ accuracy = 0.0│
+                                └───────────────┘
+```
+
+**Principe :** chaque correction humaine envoie un score `0.0` sur la trace d'origine. Langfuse calcule alors le **taux de précision réel** de l'IA, identifie les catégories les plus confondues, et permet d'itérer sur les règles et le prompt.
+
 ### Arborescence du projet
 
 ```text
 ├── .github/workflows/        # Pipelines CI/CD (tests + linter)
 ├── app/
-│   ├── classifier.py         # Classification hybride règles + LLM (@observe)
-│   ├── database.py           # Connexion SQLAlchemy (PostgreSQL)
-│   ├── email_service.py      # Ingestion périodique MailHog
+│   ├── classifier.py         # Classification hybride (règles + stemming + LLM)
+│   ├── database.py           # SQLAlchemy + persistance des articles
+│   ├── email_service.py      # Ingestion MailHog (utilise services.py)
 │   ├── limiter.py            # Rate limiter SlowAPI
-│   ├── llm_service.py        # Service LLM utilisé par l'ingestion
 │   ├── main.py               # App FastAPI + scheduler + lifespan
-│   ├── models.py             # Modèles SQLAlchemy (dont contenu_email)
+│   ├── models.py             # Modèles SQLAlchemy (avec langfuse_trace_id)
 │   ├── otel.py               # Configuration Langfuse (setup + flush)
 │   ├── routers/              # Routes : commandes, système, classifier
 │   ├── schemas.py            # Schémas Pydantic v2
 │   ├── security.py           # Auth X-API-Key
-│   └── services.py           # Extraction LLM + validation métier
+│   └── services.py           # Extraction LLM + classification + nettoyage JSON
 ├── tests/                    # Tests pytest (unitaires + intégration)
 │   ├── test_classifier.py    # 8 tests unitaires sur la classification
 │   └── test_main.py          # 7 tests d'intégration API
-├── app_streamlit.py          # Dashboard Streamlit
+├── app_streamlit.py          # Dashboard Streamlit (4 onglets + badges)
 ├── style.py                  # CSS custom Streamlit
-├── Makefile                  # Raccourcis de commandes (up/down/test/logs)
+├── Makefile                  # Raccourcis de commandes
 ├── docker-compose.yml        # Orchestration + isolation réseau
 ├── Dockerfile                # Image Docker non-root
-├── requirements.txt          # Dépendances Python
+├── requirements.txt          # Dépendances Python (inclut nltk)
 ├── DEBUG_LANGFUSE.md         # Journal de résolution du bug Langfuse
 └── test_envoi_mail.py        # Script de simulation MailHog
 ```
@@ -99,15 +131,20 @@ L'ensemble du pipeline est **instrumenté avec Langfuse** (traces, observations,
 
 ## 🔄 Cycle de vie d'un e-mail (pipeline MLOps)
 
-1. **Ingestion** — MailHog reçoit les e-mails de test. APScheduler interroge l'API toutes les 30s.
-2. **Classification hybride** — Les règles déterministes traitent en priorité les cas évidents (~60% des cas). Les cas ambigus passent au LLM.
-3. **Extraction structurée** — Le LLM retourne du JSON, validé par Pydantic (`CommandeIAOutput`) puis filtré par un gardien métier déterministe.
-4. **Persistance** — La commande est enregistrée en PostgreSQL avec son `contenu_email` original.
+1. **Ingestion** — MailHog reçoit les e-mails. APScheduler interroge l'API toutes les 30s.
+2. **Classification hybride** :
+   - **Normalisation Unicode** : suppression des accents, réduction des voyelles doublées (`cassée` → `casse`)
+   - **Stemming français** (NLTK Snowball) : `cassée` → `cass` (racine commune)
+   - **Règles déterministes** : match sur dictionnaires métier (SAV, Service Client, Commande, Logistique, Produits)
+   - **Règle contextuelle** : `probleme + produit` → SAV
+   - **Fallback LLM** pour les cas ambigus (via Ollama)
+3. **Extraction structurée** — Le LLM retourne du JSON, **nettoyé** (correction des `null`, types invalides) puis validé par Pydantic (`CommandeIAOutput`).
+4. **Persistance** — La commande et ses articles sont enregistrés en PostgreSQL avec son `contenu_email` original et l'ID de trace Langfuse.
 5. **Tracing** — Chaque étape est instrumentée Langfuse :
-   - `classer_email_avec_llm` : nom, modèle, provider
-   - `classification_hybride` : méthode utilisée (règles vs LLM)
-6. **Exposition** — Streamlit affiche les KPIs et permet la mise à jour des statuts (feedback humain).
-7. **Feedback loop** — Les changements de statut (ex : "reclassé en commande") constituent un retour utilisateur exploitable pour améliorer le modèle.
+   - `classer_email_avec_llm` : modèle, provider
+   - `classification_hybride` : méthode utilisée (`deterministic_rules`, `ollama_llm`, `llm_unavailable_fallback`)
+6. **Exposition** — Streamlit affiche les KPIs et permet la mise à jour des statuts.
+7. **Feedback HITL** — Les redirections manuelles (correction de l'IA) envoient un **score de qualité** à Langfuse.
 
 ---
 
@@ -115,26 +152,30 @@ L'ensemble du pipeline est **instrumenté avec Langfuse** (traces, observations,
 
 | Choix | Alternative | Justification |
 |---|---|---|
-| **Classification hybride** (règles + LLM) | LLM seul | Coût/latence : les règles filtrent 60% des cas, le LLM ne traite que l'ambigu. Réduit la dépendance LLM et améliore la robustesse. |
+| **Classification hybride** (règles + stemming + LLM) | LLM seul | Coût/latence : les règles filtrent 60% des cas. Le stemming permet de matcher les variantes (`cassé`/`cassée`/`casser`). |
+| **Stemming Snowball** (NLTK) | Regex manuelles | Gestion native des variantes françaises, standard NLP académique. |
 | **`llama3.2:3b`** (Ollama local) | GPT-4, Mistral 7B | Souveraineté des données (RGPD), coût zéro, latence acceptable pour du batch. |
+| **Circuit breaker LLM** | Appel direct | En cas de panne Ollama, l'app reste fonctionnelle (fail-safe). |
 | **Langfuse self-hosted** | Langfuse Cloud | Souveraineté des données + apprentissage de l'infra distribuée. |
+| **Boucle HITL** | Pas de feedback | Permet de mesurer la précision réelle et d'améliorer le système. |
 | **FastAPI** | Flask, Django | Async natif, validation Pydantic v2, OpenAPI auto-généré. |
-| **Streamlit** | Next.js, React | Prototypage rapide de l'UI. Choix assumé pour ce projet, à migrer en production. |
-| **APScheduler** | Celery + Redis | Simple, suffisant pour ce volume. Pas besoin d'un broker dédié. |
-| **Docker Compose** | Kubernetes | Adapté à un déploiement mono-machine. K8s serait over-engineered ici. |
-| **pytest** | unittest | Syntaxe concise, écosystème riche (fixtures, plugins, coverage). |
+| **Streamlit** | Next.js, React | Prototypage rapide de l'UI. Choix assumé pour ce projet. |
+| **APScheduler** | Celery + Redis | Simple, suffisant pour ce volume. |
+| **Docker Compose** | Kubernetes | Adapté à un déploiement mono-machine. |
+| **pytest** | unittest | Syntaxe concise, écosystème riche. |
 
 ---
 
 ## 🔒 Sécurité & Robustesse
 
-- **Isolation réseau Docker** : PostgreSQL, ClickHouse, Redis et MinIO sont sur `backend_net` uniquement. Seuls Streamlit et l'API sont exposés.
-- **Validation LLM** : réponses demandées en JSON strict, validées par Pydantic v2 + gardien métier déterministe.
-- **Rate limiting** : limitation par IP via `slowapi` pour protéger le moteur d'inférence.
-- **Protection timing attacks** : validation de la clé API avec `secrets.compare_digest`.
-- **Conteneurs non-root** : l'app tourne avec un utilisateur dédié (`appuser`).
-- **Tests de sécurité** : vérification que l'auth est obligatoire sur toutes les routes protégées + test anti-injection sur la classification.
-- **Schéma de démarrage** : `Base.metadata.create_all` crée les tables absentes. Alembic est présent mais pas encore utilisé en migration versionnée (voir *Limitations*).
+- **Isolation réseau Docker** : PostgreSQL, ClickHouse, Redis, MinIO sur `backend_net`. Seuls Streamlit et l'API sont exposés.
+- **Validation LLM** : JSON strict + nettoyage automatique (`_nettoyer_json_llm`) + validation Pydantic.
+- **Rate limiting** : limitation par IP via `slowapi`.
+- **Protection timing attacks** : `secrets.compare_digest` pour la clé API.
+- **Conteneurs non-root** : utilisateur dédié (`appuser`).
+- **Tests de sécurité** : auth obligatoire sur toutes les routes + test anti-injection.
+- **Circuit breaker** : si Ollama est down, l'API bascule sur les règles (fail-safe).
+- **Fail-safe sur score Langfuse** : une panne Langfuse ne bloque pas la redirection.
 
 ---
 
@@ -142,23 +183,30 @@ L'ensemble du pipeline est **instrumenté avec Langfuse** (traces, observations,
 
 ### Langfuse — traces instrumentées
 
-Chaque appel API instrumenté génère une **trace** avec ses **observations** :
-
 | Observation | Type | Métadonnées capturées |
 |---|---|---|
 | `classer_email_avec_llm` | span | `model_used`, `provider` |
-| `classification_hybride` | span | `classification_method` (`deterministic_rules` ou `ollama_llm`) |
+| `classification_hybride` | span | `classification_method` |
 | `analyser_mail_avec_llm` | span | contenu de l'e-mail, extraction, validation |
 
-### Flush explicite
+### Scores de qualité (boucle HITL)
 
-Le SDK Langfuse v4 bufferise les traces avant envoi. Dans un contexte FastAPI long-running, un `get_client().flush()` explicite est appelé **à la fin de chaque classification** pour garantir la propagation immédiate vers MinIO → Redis → Worker → ClickHouse.
+| Score | Valeur | Signification |
+|---|---|---|
+| `classification_accuracy` | `0.0` | Correction humaine : l'IA s'est trompée |
+
+Chaque redirection manuelle dans Streamlit envoie ce score à Langfuse **sur la trace d'origine** (via `langfuse_trace_id` stocké en base).
+
+### Métriques exploitables
+
+- **Taux de précision réel** : ratio de classifications non corrigées
+- **Catégories les plus confondues** : SAV ↔ Service Client, etc.
+- **Taux de fallback** : % de classifications n'ayant pas utilisé le LLM
 
 ### Scheduler & logs
 
-- **APScheduler** : job `job_verification_email` toutes les 30s, encapsulé dans une observation Langfuse (`start_as_current_observation`).
-- **Logs applicatifs** : format lisible en dev, prêt à être structuré en JSON pour la production.
-- **Healthcheck** : endpoint `/health` disponible.
+- **APScheduler** : job `job_verification_email` toutes les 30s.
+- **Healthcheck** : endpoint `/health`.
 
 ### Accès
 
@@ -182,7 +230,6 @@ POSTGRES_PASSWORD=change_me_password
 POSTGRES_DB=traitement_commandes_db
 
 # --- Ollama (LLM) ---
-# Nom du service Docker (résolution interne) :
 OLLAMA_URL=http://service_ollama:11434
 OLLAMA_MODEL=llama3.2:3b
 
@@ -208,7 +255,7 @@ MAILHOG_API_URL=http://service_mailhog:8025/api/v2/messages
 MAILHOG_DELETE_URL=http://service_mailhog:8025/api/v1/messages
 ```
 
-> ⚠️ **Attention** : ne committez **jamais** votre `.env` réel sur Git. Utilisez `.env.example` comme template.
+> ⚠️ **Attention** : ne committez **jamais** votre `.env` réel sur Git.
 
 ---
 
@@ -217,7 +264,7 @@ MAILHOG_DELETE_URL=http://service_mailhog:8025/api/v1/messages
 ### 1. Prérequis
 
 - Docker Desktop (macOS, Linux, Windows)
-- **Ollama installé sur la machine hôte** (pour macOS uniquement — voir note ci-dessous)
+- **Ollama installé sur la machine hôte** (macOS)
 - 8 Go de RAM minimum
 
 ### 2. Cloner et configurer
@@ -231,14 +278,12 @@ cp .env.example .env
 
 ### 3. Télécharger le modèle IA
 
-**Sur macOS** (recommandé) : Ollama tourne sur l'hôte, l'API s'y connecte via `host.docker.internal:11434`.
-
+**Sur macOS** : Ollama tourne sur l'hôte.
 ```bash
 ollama pull llama3.2:3b
 ```
 
-**Sur Linux/Windows** : le modèle est téléchargé dans le conteneur.
-
+**Sur Linux/Windows** : le modèle est dans le conteneur.
 ```bash
 docker compose exec ollama ollama pull llama3.2:3b
 ```
@@ -247,7 +292,6 @@ docker compose exec ollama ollama pull llama3.2:3b
 
 ```bash
 make up
-# ou : docker compose up -d --build
 ```
 
 ### 5. Vérifier le statut
@@ -256,12 +300,7 @@ make up
 docker compose ps
 ```
 
-Tous les services doivent être `Up` (ou `healthy`). Vérifiez les logs si besoin :
-
-```bash
-make logs
-# ou : docker compose logs -f api
-```
+Tous les services doivent être `Up` (ou `healthy`).
 
 ### 📍 Accès aux services
 
@@ -282,10 +321,11 @@ Les routes protégées nécessitent l'en-tête `X-API-Key`.
 |---|---|---|
 | `GET` | `/health` | État de l'API et de la base |
 | `GET` | `/stats` | KPIs du dashboard |
-| `GET` | `/commandes` | Liste des commandes et dossiers SAV |
+| `GET` | `/commandes` | Liste des commandes |
 | `PATCH` | `/commandes/{id}/statut` | Mise à jour d'un statut |
+| `POST` | `/commandes/{id}/rediriger` | **Redirection HITL** (avec score Langfuse) |
 | `POST` | `/commandes/analyser` | Analyse + enregistrement d'un e-mail |
-| `POST` | `/ai/classify` | Classification hybride (commande/SAV/autre) |
+| `POST` | `/ai/classify` | Classification hybride |
 
 **Exemple :**
 
@@ -293,111 +333,82 @@ Les routes protégées nécessitent l'en-tête `X-API-Key`.
 curl -X POST http://localhost:8000/ai/classify \
   -H "X-API-Key: votre_cle" \
   -H "Content-Type: application/json" \
-  -d '{"text": "Je voudrais annuler ma commande s'\''il vous plaît"}'
+  -d '{"text": "Je voudrais annuler ma commande"}'
 ```
 
 ---
 
-## 💻 Mode développement local
+## 🎨 Dashboard Streamlit
 
-### 1. Lancer l'API avec rechargement à chaud
+Interface organisée en **4 onglets** :
 
-```bash
-uvicorn app.main:app --reload --port 8000
-```
+| Onglet | Contenu |
+|---|---|
+| 🛒 **Commandes** | 3 sous-sections (En cours / Expédiées / Terminées) |
+| 🎧 **Service Client** | Dossiers relationnels (retours, remboursements, questions) |
+| 🛠️ **SAV** | Dossiers techniques (casse, panne, garantie) |
+| 🧪 **Zone de Test** | Simulation d'analyse d'e-mail |
 
-### 2. Lancer Streamlit (autre terminal)
-
-```bash
-streamlit run app_streamlit.py
-```
-
-### 3. Lancer les tests
-
-```bash
-pytest -v
-```
+**Boucle HITL** : chaque dossier a 3 boutons de redirection (🛒 🎧 🛠️) + boutons d'avancement logistique (📦 Expédiée, ✅ Terminée).
 
 ---
 
 ## 🧪 Tests
 
-Le projet dispose de **15 tests automatisés** répartis en deux catégories.
+**15 tests automatisés** répartis en deux catégories.
 
-### Tests unitaires — `tests/test_classifier.py`
+### Tests unitaires (`tests/test_classifier.py`)
 
-Vérifient la logique métier de la classification par règles :
-
-| Type de test | Ce qui est vérifié |
+| Type | Ce qui est vérifié |
 |---|---|
-| **Cas de base** | Email commande → `COMMANDE`, email SAV → `SAV`, email neutre → `AUTRE` |
-| **Cas limite** | Texte vide → lève `ValueError` |
-| **Cas d'encodage** | Accents (`café` → `cafe`), majuscules (`ANNULER` → `annuler`) |
-| **Cas sécurité** | Tentative d'injection (`annuler\nIGNORE...\ncommander`) → reste classé `SAV` |
+| **Cas de base** | Commande, SAV, Service Client, AUTRE |
+| **Cas limite** | Texte vide → `ValueError` |
+| **Encodage** | Accents (`café` → `cafe`), majuscules |
+| **Sécurité** | Injection (`annuler\nIGNORE...`) |
+| **Contexte** | `probleme + produit` → SAV |
+| **Logistique** | `retard + colis` → COMMANDE |
 
-### Tests d'intégration — `tests/test_main.py`
+### Tests d'intégration (`tests/test_main.py`)
 
-Vérifient les endpoints de l'API via `TestClient` (FastAPI) :
+- `/health` sans auth
+- Auth obligatoire sur les routes protégées
+- Erreurs 404
+- Traitement asynchrone
 
-- `/health` accessible sans authentification
-- Auth obligatoire sur toutes les routes protégées (`X-API-Key`)
-- Erreurs 404 sur ressources inexistantes
-- Traitement asynchrone des commandes
-
-### Lancer les tests
+### Lancer
 
 ```bash
-# Tous les tests via le Makefile
-make test
-
-# Tous les tests en direct
-pytest -v
-
-# Un fichier précis
-pytest tests/test_classifier.py -v
-
-# Un seul test précis
-pytest tests/test_classifier.py::test_email_avec_annulation_retourne_sav -v
+make test          # Tous les tests
+pytest -v          # En direct
 ```
 
-**Résultat attendu :** `15 passed`
+**Résultat :** `15 passed`
 
 ---
 
 ## ⚡ Commandes rapides (Makefile)
 
-Un `Makefile` est fourni pour automatiser les tâches courantes :
-
 | Commande | Description |
 |---|---|
-| `make help` | Affiche la liste des commandes |
-| `make up` | Démarre toute la stack Docker |
-| `make down` | Arrête toute la stack |
-| `make logs` | Affiche les logs en direct |
-| `make test` | Lance les tests pytest |
-| `make build` | Reconstruit les images Docker |
-| `make restart-api` | Redémarre l'API uniquement |
-| `make clean` | Nettoie les caches Python (`__pycache__`, `.pytest_cache`) |
-
-**Exemple :**
-
-```bash
-# Au lieu de taper "docker compose up -d --build"
-make up
-```
+| `make help` | Liste des commandes |
+| `make up` | Démarre la stack |
+| `make down` | Arrête la stack |
+| `make logs` | Logs en direct |
+| `make test` | Tests pytest |
+| `make build` | Reconstruit les images |
+| `make restart-api` | Redémarre l'API |
+| `make clean` | Nettoie les caches |
 
 ---
 
 ## ⚠️ Limitations connues
 
-Ce projet est un **projet d'apprentissage MLOps** — il est important de connaître ses limites :
-
-- **Interface Langfuse** : bug connu en self-hosting sur la table `events_core` (`projects.environmentFilterOptions`). Les traces **sont bien stockées** dans ClickHouse (vérifiables en SQL), mais l'affichage UI peut être partiellement cassé selon la version. Contournement possible : utiliser Langfuse Cloud pour la démo UI.
-- **Migrations DB** : `Base.metadata.create_all` crée les tables au démarrage. Pas encore de migrations Alembic versionnées.
-- **Classification** : limitée à 3 catégories. Pas de mécanisme d'apprentissage actif à partir du feedback utilisateur.
-- **Tests** : 15 tests (unitaires + intégration API). Pas encore de tests end-to-end (TestClient → Docker → Streamlit).
-- **Latence LLM** : `llama3.2:3b` en local a une latence de 2-5s par classification. Acceptable en batch, mais à optimiser pour du temps réel.
-- **Sécurité** : la clé API est en clair dans `.env`. En production, utiliser Docker secrets ou un vault.
+- **Interface Langfuse** : bug connu `events_core` en self-hosting. Les traces sont bien stockées dans ClickHouse (vérifiables en SQL), mais l'UI peut être partiellement cassée. Contournement : Langfuse Cloud.
+- **Migrations DB** : `Base.metadata.create_all` au démarrage. Pas encore de migrations Alembic versionnées.
+- **Classification** : 4 catégories fixes. Pas d'apprentissage actif à partir du feedback (les scores sont enregistrés mais non utilisés pour réentraîner).
+- **Tests** : 15 tests (unitaires + intégration API). Pas de tests end-to-end (TestClient → Docker → Streamlit).
+- **Latence LLM** : `llama3.2:3b` en local : 2-5s par classification. Acceptable en batch.
+- **Sécurité** : clé API en clair dans `.env`. En production : Docker secrets ou Vault.
 
 ---
 
@@ -405,27 +416,31 @@ Ce projet est un **projet d'apprentissage MLOps** — il est important de conna�
 
 ### ✅ Déjà fait
 
-- [x] Tests unitaires + intégration (15 tests, `pytest`)
-- [x] Makefile pour automatiser les commandes
-- [x] Instrumentation Langfuse (traces, observations, flush explicite)
-- [x] Conteneur `langfuse-worker` pour le pipeline d'ingestion
+- [x] Classification hybride 4 catégories + stemming NLP
+- [x] Circuit breaker LLM (fallback fail-safe)
+- [x] Nettoyage JSON du LLM (`_nettoyer_json_llm`)
+- [x] Persistance des articles extraits
+- [x] Boucle de feedback Humain-in-the-Loop avec scores Langfuse
+- [x] Dashboard Streamlit 4 onglets avec badges
+- [x] 15 tests (unitaires + intégration API)
+- [x] Makefile pour automatiser
 - [x] Documentation complète (README, DEBUG_LANGFUSE, LICENSE MIT)
-- [x] Template `.env.example` pour la reproductibilité
+- [x] Template `.env.example`
 
 ### 🚧 En cours
 
-- [ ] **Fallback robuste LLM** : `try/except` Ollama + retour règles si indisponible
-- [ ] Migrations Alembic versionnées pour la DB applicative
+- [ ] Migrations Alembic versionnées
 - [ ] Logs structurés JSON (`structlog`)
+- [ ] Endpoint `/metrics` (Prometheus)
 
 ### 🔮 Prévisions
 
 - [ ] **Datasets d'évaluation** Langfuse + métriques (précision, rappel, F1)
-- [ ] **Feedback utilisateur** → scores Langfuse (`score()` sur les traces)
+- [ ] **Exploitation des scores HITL** pour améliorer les règles
 - [ ] Fallback multi-modèles (llama3.2 → qwen2.5 → règles seules)
-- [ ] Endpoint `/metrics` (Prometheus) + dashboards Grafana
-- [ ] Déploiement public (Fly.io / Railway) pour démo
-- [ ] Migration UI Streamlit → Next.js (design pro type Langfuse/Linear)
+- [ ] Dashboards Grafana (métriques Prometheus)
+- [ ] Déploiement public (Fly.io / Railway)
+- [ ] Migration UI Streamlit → Next.js
 - [ ] Tests end-to-end (TestClient → Docker → Streamlit)
 
 ---
@@ -437,6 +452,7 @@ Ce projet est un **projet d'apprentissage MLOps** — il est important de conna�
 - [Documentation Ollama](https://github.com/ollama/ollama)
 - [Documentation FastAPI](https://fastapi.tiangolo.com/)
 - [Documentation pytest](https://docs.pytest.org/)
+- [NLTK Snowball Stemmer](https://www.nltk.org/howto/stem.html)
 
 ---
 
