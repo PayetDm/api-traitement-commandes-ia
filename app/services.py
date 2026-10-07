@@ -66,6 +66,50 @@ def _classifier_email(texte_email: str) -> str:
         )
         return "service_client"
 
+def _nettoyer_json_llm(raw: dict) -> dict:
+    """
+    Nettoie le JSON renvoyé par le LLM avant validation Pydantic.
+    Corrige les valeurs invalides (None, manquantes, hors bornes).
+    """
+    corrections = []
+
+    articles = raw.get("articles", [])
+    for i, article in enumerate(articles):
+        if not isinstance(article, dict):
+            articles[i] = {"nom": "Article non identifié", "quantite": 1, "prix_unitaire": 0.0}
+            corrections.append(f"article #{i} non-dict remplacé")
+            continue
+
+        if not article.get("nom"):
+            article["nom"] = "Article non identifié"
+            corrections.append(f"article #{i} nom manquant")
+
+        if article.get("quantite") is None:
+            article["quantite"] = 1
+            corrections.append(f"article #{i} quantite=None → 1")
+        elif not isinstance(article["quantite"], int):
+            try:
+                article["quantite"] = int(article["quantite"])
+            except (ValueError, TypeError):
+                article["quantite"] = 1
+                corrections.append(f"article #{i} quantite invalide → 1")
+
+        if article.get("prix_unitaire") is None:
+            article["prix_unitaire"] = 0.0
+            corrections.append(f"article #{i} prix=None → 0.0")
+        elif not isinstance(article["prix_unitaire"], (int, float)):
+            try:
+                article["prix_unitaire"] = float(article["prix_unitaire"])
+            except (ValueError, TypeError):
+                article["prix_unitaire"] = 0.0
+                corrections.append(f"article #{i} prix invalide → 0.0")
+
+    if corrections:
+        logger.warning(
+            "Corrections appliquées au JSON LLM : %s", " | ".join(corrections)
+        )
+
+    return raw
 
 @_observe_analyse
 def analyser_mail_avec_llm(texte_email: str) -> dict:
@@ -98,7 +142,9 @@ def analyser_mail_avec_llm(texte_email: str) -> dict:
 
         resultat = response.json()
         raw_json = json.loads(resultat.get("response", "{}"))
+        raw_json = _nettoyer_json_llm(raw_json)
         data_validee = CommandeIAOutput(**raw_json)
+        
         data_dict = data_validee.model_dump()
 
         if (

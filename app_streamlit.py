@@ -67,11 +67,10 @@ with col_right:
     if st.button("🔄 Rafraîchir les données", type="secondary", use_container_width=True):
         st.rerun()
 
-tab_commandes, tab_service_client, tab_sav, tab_expediees, tab_test = st.tabs([
+tab_commandes, tab_service_client, tab_sav, tab_test = st.tabs([
     "🛒 Commandes",
     "🎧 Service Client",
     "🛠️ SAV",
-    "📦 Expédiées",
     "🧪 Zone de Test",
 ])
 
@@ -83,19 +82,58 @@ def afficher_commande(cmd, statuts_disponibles, cle_prefixe=""):
     """Affiche un dossier de commande avec ses actions."""
     statut = cmd.get("statut", "inconnu")
     urgente = cmd.get("urgente", False)
-    badge_urgence = "🚨 URGENT" if urgente else "🟢 Normal"
+
+    # Badge de statut avec couleur
+    statuts_visuels = {
+        "en_attente": ("🟠", "À préparer", "#F59E0B"),
+        "expediee": ("🚚", "En livraison", "#3B82F6"),
+        "traitee": ("✅", "Terminée", "#10B981"),
+        "transfere_sav": ("🛠️", "SAV", "#EF4444"),
+        "transfere_service_client": ("🎧", "Service Client", "#8B5CF6"),
+        "erreur_technique": ("⚠️", "Erreur", "#6B7280"),
+    }
+    emoji_statut, label_statut, couleur = statuts_visuels.get(
+        statut, ("❓", "Inconnu", "#6B7280")
+    )
+
+    # Badge urgence
+    if urgente:
+        badge_urgence = "🚨"
+        texte_urgence = "URGENT"
+    else:
+        badge_urgence = "🟢"
+        texte_urgence = "Normal"
 
     titre = (
-        f"Commande #{cmd['id']} - {cmd['client']} "
-        f"({cmd['montant_total']} €) | {badge_urgence} | Statut: {statut}"
+        f"{emoji_statut} Commande #{cmd['id']} — **{cmd['client']}** "
+        f"| {cmd['montant_total']:.2f} € | {badge_urgence} {texte_urgence}"
     )
 
     with st.expander(titre):
+        # Info-bulle de statut
+        st.markdown(
+            f"""
+            <div style="
+                display: inline-block;
+                padding: 4px 12px;
+                background-color: {couleur}20;
+                color: {couleur};
+                border-radius: 12px;
+                font-weight: 600;
+                font-size: 0.85rem;
+                margin-bottom: 12px;
+            ">
+                {emoji_statut} {label_statut}
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
         c1, c2 = st.columns([2, 1])
 
         with c1:
             st.write(f"**Client :** {cmd['client']}")
-            st.write(f"**Montant Total :** {cmd['montant_total']} €")
+            st.write(f"**Montant Total :** {cmd['montant_total']:.2f} €")
             st.write(f"**Urgent :** {'Oui' if urgente else 'Non'}")
             st.write(f"**Date :** {cmd.get('date_creation', 'N/A')}")
 
@@ -152,10 +190,18 @@ try:
     if response.status_code == 200:
         toutes_commandes = response.json()
 
-        # Répartition par statut
-        commandes_en_cours = [
+                # Répartition par statut
+        commandes_a_traiter = [
             c for c in toutes_commandes
-            if c.get("statut") in ("en_attente", "traitee")
+            if c.get("statut") == "en_attente"
+        ]
+        commandes_expediees = [
+            c for c in toutes_commandes
+            if c.get("statut") == "expediee"
+        ]
+        commandes_terminees = [
+            c for c in toutes_commandes
+            if c.get("statut") == "traitee"
         ]
         dossiers_service_client = [
             c for c in toutes_commandes
@@ -164,10 +210,6 @@ try:
         dossiers_sav = [
             c for c in toutes_commandes
             if c.get("statut") == "transfere_sav"
-        ]
-        commandes_expediees = [
-            c for c in toutes_commandes
-            if c.get("statut") == "expediee"
         ]
 
         # Statuts disponibles pour les changements manuels
@@ -180,15 +222,101 @@ try:
             "erreur_technique",
         ]
 
-        # ---------------------------------------------------------
-        # ONGLET 1 : COMMANDES EN COURS
+
+                # ---------------------------------------------------------
+        # ONGLET 1 : COMMANDES (3 sous-sections)
         # ---------------------------------------------------------
         with tab_commandes:
-            if not commandes_en_cours:
-                st.info("Aucune commande en cours de traitement.")
+            total_commandes = (
+                len(commandes_a_traiter)
+                + len(commandes_expediees)
+                + len(commandes_terminees)
+            )
+            if total_commandes == 0:
+                st.info("📭 Aucune commande enregistrée pour le moment.")
             else:
-                for cmd in reversed(commandes_en_cours):
-                    afficher_commande(cmd, statuts_disponibles, cle_prefixe="cmd_")
+                # --- Sous-section 1 : À traiter ---
+                nb_attente = len(commandes_a_traiter)
+                st.markdown(
+                    f"""
+                    <h3 style="display: flex; align-items: center; gap: 10px;">
+                        🟠 En cours
+                        <span style="
+                            background-color: #F59E0B;
+                            color: white;
+                            padding: 2px 10px;
+                            border-radius: 12px;
+                            font-size: 0.75em;
+                            font-weight: 700;
+                        ">{nb_attente}</span>
+                    </h3>
+                    """,
+                    unsafe_allow_html=True,
+                )
+                if not commandes_a_traiter:
+                    st.success("✨ Aucune commande à préparer. Bon boulot !")
+                else:
+                    for cmd in reversed(commandes_a_traiter):
+                        afficher_commande(
+                            cmd, statuts_disponibles, cle_prefixe="encours_"
+                        )
+
+                st.divider()
+
+                # --- Sous-section 2 : Expédiées ---
+                nb_exp = len(commandes_expediees)
+                st.markdown(
+                    f"""
+                    <h3 style="display: flex; align-items: center; gap: 10px;">
+                        🚚 Expédiées
+                        <span style="
+                            background-color: #3B82F6;
+                            color: white;
+                            padding: 2px 10px;
+                            border-radius: 12px;
+                            font-size: 0.75em;
+                            font-weight: 700;
+                        ">{nb_exp}</span>
+                    </h3>
+                    """,
+                    unsafe_allow_html=True,
+                )
+                if not commandes_expediees:
+                    st.caption("📭 Aucune commande en cours de livraison.")
+                else:
+                    for cmd in reversed(commandes_expediees):
+                        afficher_commande(
+                            cmd, statuts_disponibles, cle_prefixe="exp_"
+                        )
+
+                st.divider()
+
+                # --- Sous-section 3 : Terminées ---
+                nb_term = len(commandes_terminees)
+                st.markdown(
+                    f"""
+                    <h3 style="display: flex; align-items: center; gap: 10px;">
+                        ✅ Terminées
+                        <span style="
+                            background-color: #10B981;
+                            color: white;
+                            padding: 2px 10px;
+                            border-radius: 12px;
+                            font-size: 0.75em;
+                            font-weight: 700;
+                        ">{nb_term}</span>
+                    </h3>
+                    """,
+                    unsafe_allow_html=True,
+                )
+                if not commandes_terminees:
+                    st.caption("📭 Aucune commande terminée pour le moment.")
+                else:
+                    for cmd in reversed(commandes_terminees):
+                        afficher_commande(
+                            cmd, statuts_disponibles, cle_prefixe="term_"
+                        )
+
 
         # ---------------------------------------------------------
         # ONGLET 2 : SERVICE CLIENT
@@ -206,6 +334,7 @@ try:
                         dossier, statuts_disponibles, cle_prefixe="sc_"
                     )
 
+
         # ---------------------------------------------------------
         # ONGLET 3 : SAV (technique)
         # ---------------------------------------------------------
@@ -222,20 +351,6 @@ try:
                         dossier, statuts_disponibles, cle_prefixe="sav_"
                     )
 
-        # ---------------------------------------------------------
-        # ONGLET 4 : EXPÉDIÉES
-        # ---------------------------------------------------------
-        with tab_expediees:
-            if not commandes_expediees:
-                st.info("Aucune commande expédiée pour le moment.")
-            else:
-                st.caption(
-                    f"📦 {len(commandes_expediees)} commande(s) expédiée(s)."
-                )
-                for cmd in reversed(commandes_expediees):
-                    afficher_commande(
-                        cmd, statuts_disponibles, cle_prefixe="exp_"
-                    )
 
         # ---------------------------------------------------------
         # ONGLET 5 : ZONE DE TEST

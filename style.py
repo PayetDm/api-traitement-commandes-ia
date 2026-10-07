@@ -164,5 +164,17 @@ def apply_custom_style():
     ::-webkit-scrollbar-track { background: #FAF8F4; }
     ::-webkit-scrollbar-thumb { background: #D5CFC4; border-radius: 4px; }
     ::-webkit-scrollbar-thumb:hover { background: #B8B0A0; }
+
+        /* ============ EXPANDERS : badges de statut ============ */
+    [data-testid="stExpander"] details summary p {
+        font-size: 1rem;
+        font-weight: 500;
+    }
+
+    /* ============ TITRES DE SECTION ============ */
+    h3 {
+        margin-top: 1.5rem !important;
+        margin-bottom: 0.75rem !important;
+    }
     </style>
     """, unsafe_allow_html=True)

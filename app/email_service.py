@@ -2,18 +2,18 @@ import base64
 import logging
 import requests
 from sqlalchemy.orm import Session
+
 from app.database import sauvegarder_commande
-from app.llm_service import analyser_commande_avec_llm # Import nvlle fonction
+from app.services import analyser_mail_avec_llm
 
 logger = logging.getLogger(__name__)
 
-# URL de l'API de MailHog dans le réseau Docker
 MAILHOG_API_URL = "http://service_mailhog:8025/api/v2/messages"
 MAILHOG_DELETE_URL = "http://service_mailhog:8025/api/v1/messages"
 
 
 def decoder_corps_mail(msg: dict) -> str:
-    """Extrait et décode le corps du message selon son encodage (Base64 ou texte)."""
+    """Extrait et décode le corps du message selon son encodage."""
     content = msg.get("Content", {})
     body = content.get("Body", "")
 
@@ -31,17 +31,15 @@ def decoder_corps_mail(msg: dict) -> str:
 
 
 def extraire_expediteur(msg: dict) -> str:
-    """Extrait proprement l'adresse e-mail de l'expéditeur depuis la structure MailHog."""
+    """Extrait l'adresse e-mail de l'expéditeur depuis la structure MailHog."""
     from_data = msg.get("From", {})
 
-    # MailHog v2 fournit "Mailbox" et "Domain"
     mailbox = from_data.get("Mailbox", "")
     domain = from_data.get("Domain", "")
 
     if mailbox and domain:
         return f"{mailbox}@{domain}"
 
-    # Fallback si le header From brut me disponible
     headers = msg.get("Content", {}).get("Headers", {})
     from_header = headers.get("From", [""])
     if from_header and from_header[0]:
@@ -50,8 +48,18 @@ def extraire_expediteur(msg: dict) -> str:
     return "client.inconnu@exemple.com"
 
 
+def _statut_depuis_categorie(categorie: str) -> str:
+    """Convertit la catégorie IA en statut de commande."""
+    mapping = {
+        "commande": "en_attente",
+        "sav": "transfere_sav",
+        "service_client": "transfere_service_client",
+    }
+    return mapping.get(categorie, "transfere_service_client")
+
+
 def relever_et_traiter_emails(db: Session):
-    """Récupère les e-mails reçus dans MailHog, enregistre la commande et supprime l'e-mail."""
+    """Récupère les e-mails MailHog, les analyse et les enregistre."""
     try:
         response = requests.get(MAILHOG_API_URL, timeout=5)
         if response.status_code != 200:
@@ -74,32 +82,34 @@ def relever_et_traiter_emails(db: Session):
 
             logger.info(f"Nouveau mail détecté de {expediteur} - Sujet: {sujet}")
 
-            # --- INFERENCE MLOps via OLLAMA ---
+            # --- ANALYSE LLM (extraction + classification) ---
             logger.info("Envoi du contenu du mail à Ollama pour structuration...")
-            resultat_llm = analyser_commande_avec_llm(corps_mail)
+            data_llm = analyser_mail_avec_llm(corps_mail)
+
+            # Utilise le nom extrait par le LLM, fallback sur l'email
+            client_final = data_llm.get("client") or expediteur
 
             donnees_commande = {
-                "client": expediteur,
+                "client": client_final,
                 "message_id": msg_id,
                 "contenu_email": corps_mail,
                 "email_client": expediteur,
-                "montant_total": 0.0,
-                "urgente": "URGENT" in sujet.upper(),
-                "statut": "en_attente",
-                "articles": [{"texte_raw": corps_mail}],
+                "montant_total": data_llm.get("montant_total", 0.0),
+                "urgente": data_llm.get("urgente", False) or ("URGENT" in sujet.upper()),
+                "statut": _statut_depuis_categorie(data_llm.get("categorie", "autre")),
+                "articles": data_llm.get("articles", []),
             }
 
-            # Enregistrement en base de données PostgreSQL
             sauvegarder_commande(db, donnees_commande)
-            logger.info(f"Commande de {expediteur} enregistrée en BDD avec succès !")
+            logger.info(
+                f"Commande de {client_final} enregistrée ({donnees_commande['statut']})"
+            )
 
-            # Suppression du message dans MailHog pour éviter qu'il ne soit relu
+            # Suppression du message dans MailHog
             if msg_id:
                 res_del = requests.delete(f"{MAILHOG_DELETE_URL}/{msg_id}", timeout=5)
                 if res_del.status_code == 200:
                     logger.info(f"E-mail {msg_id} supprimé de MailHog.")
 
     except Exception as e:
-        logger.error(
-            f"Erreur pendant l'exécution du service mail : {str(e)}"
-        )
+        logger.error(f"Erreur pendant l'exécution du service mail : {str(e)}")
