@@ -78,6 +78,42 @@ tab_commandes, tab_service_client, tab_sav, tab_test = st.tabs([
 # ==========================================
 # Helper : affichage d'une commande
 # ==========================================
+def _changer_statut(commande_id: int, nouveau_statut: str):
+    """Change le statut d'une commande."""
+    try:
+        res = requests.patch(
+            f"{API_URL}/commandes/{commande_id}/statut",
+            json={"statut": nouveau_statut},
+            headers=HEADERS,
+            timeout=5,
+        )
+        if res.status_code == 200:
+            st.success(f"✅ Statut : {nouveau_statut}")
+            st.rerun()
+        else:
+            st.error(f"Échec (code {res.status_code})")
+    except Exception as e:
+        st.error(f"Erreur : {e}")
+
+
+def _rediriger(commande_id: int, nouvelle_categorie: str):
+    """Redirige une commande vers une autre catégorie."""
+    try:
+        res = requests.post(
+            f"{API_URL}/commandes/{commande_id}/rediriger",
+            json={"nouvelle_categorie": nouvelle_categorie},
+            headers=HEADERS,
+            timeout=5,
+        )
+        if res.status_code == 200:
+            st.success(f"✅ Redirigé vers {nouvelle_categorie}")
+            st.rerun()
+        else:
+            st.error(f"Échec de la redirection (code {res.status_code})")
+    except Exception as e:
+        st.error(f"Erreur : {e}")
+
+
 def afficher_commande(cmd, statuts_disponibles, cle_prefixe=""):
     """Affiche un dossier de commande avec ses actions."""
     statut = cmd.get("statut", "inconnu")
@@ -154,31 +190,74 @@ def afficher_commande(cmd, statuts_disponibles, cle_prefixe=""):
                 st.caption("Aucun article détaillé.")
 
         with c2:
-            st.write("**Changer le statut :**")
-            idx_actuel = (
-                statuts_disponibles.index(statut)
-                if statut in statuts_disponibles
-                else 0
-            )
-            nouveau_statut = st.selectbox(
-                "Nouveau statut",
-                options=statuts_disponibles,
-                index=idx_actuel,
-                key=f"{cle_prefixe}select_{cmd['id']}",
-            )
+            st.write("**🔄 Rediriger vers :**")
 
-            if st.button("Mettre à jour", key=f"{cle_prefixe}btn_{cmd['id']}"):
-                patch_res = requests.patch(
-                    f"{API_URL}/commandes/{cmd['id']}/statut",
-                    json={"statut": nouveau_statut},
-                    headers=HEADERS,
-                    timeout=5,
-                )
-                if patch_res.status_code == 200:
-                    st.success("Statut mis à jour !")
-                    st.rerun()
+            col_btn1, col_btn2, col_btn3 = st.columns(3)
+
+            with col_btn1:
+                if statut != "en_attente":
+                    if st.button(
+                        "🛒 Cmd",
+                        key=f"{cle_prefixe}redir_cmd_{cmd['id']}",
+                        use_container_width=True,
+                        help="Rediriger vers Commande",
+                    ):
+                        _rediriger(cmd["id"], "commande")
                 else:
-                    st.error("Échec de la mise à jour.")
+                    st.caption("🛒 Cmd")
+
+            with col_btn2:
+                if statut != "transfere_service_client":
+                    if st.button(
+                        "🎧 SC",
+                        key=f"{cle_prefixe}redir_sc_{cmd['id']}",
+                        use_container_width=True,
+                        help="Rediriger vers Service Client",
+                    ):
+                        _rediriger(cmd["id"], "service_client")
+                else:
+                    st.caption("🎧 SC")
+
+            with col_btn3:
+                if statut != "transfere_sav":
+                    if st.button(
+                        "🛠️ SAV",
+                        key=f"{cle_prefixe}redir_sav_{cmd['id']}",
+                        use_container_width=True,
+                        help="Rediriger vers SAV",
+                    ):
+                        _rediriger(cmd["id"], "sav")
+                else:
+                    st.caption("🛠️ SAV")
+
+            # Avancement logistique (uniquement pour les commandes)
+            if statut in ("en_attente", "expediee"):
+                st.divider()
+                st.write("**🚚 Avancer le statut :**")
+
+                col_av1, col_av2 = st.columns(2)
+
+                with col_av1:
+                    if statut == "en_attente":
+                        if st.button(
+                            "📦 Expédiée",
+                            key=f"{cle_prefixe}av_exp_{cmd['id']}",
+                            use_container_width=True,
+                            type="primary",
+                            help="Marquer comme expédiée (partie du dépôt)",
+                        ):
+                            _changer_statut(cmd["id"], "expediee")
+
+                with col_av2:
+                    if statut == "expediee":
+                        if st.button(
+                            "✅ Terminée",
+                            key=f"{cle_prefixe}av_term_{cmd['id']}",
+                            use_container_width=True,
+                            type="primary",
+                            help="Marquer comme terminée (client a signé)",
+                        ):
+                            _changer_statut(cmd["id"], "traitee")
 
 
 # ==========================================

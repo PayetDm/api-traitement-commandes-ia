@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.database import SessionLocal, get_db
 from app.services import analyser_mail_avec_llm
 from app.models import Article, Commande
-from app.schemas import CommandeStatutUpdate, CommandeSchema
+from app.schemas import CommandeStatutUpdate, CommandeSchema, RedirectionInput
 from app.security import verifier_cle_api
 
 router = APIRouter(tags=["Commandes"])
@@ -117,3 +117,45 @@ def statistiques(
         .filter(Commande.statut == "transfere_service_client")
         .count(),
     }
+
+
+@router.post("/commandes/{commande_id}/rediriger", response_model=CommandeSchema)
+def rediriger_commande(
+    commande_id: int,
+    payload: RedirectionInput,
+    _: str = Depends(verifier_cle_api),
+    db: Session = Depends(get_db),
+):
+    """
+    Redirige un dossier vers une autre catégorie (Human-in-the-Loop).
+    Change le statut en fonction de la nouvelle catégorie.
+    """
+    commande = db.query(Commande).filter(Commande.id == commande_id).first()
+    if commande is None:
+        raise HTTPException(status_code=404, detail="Commande introuvable")
+
+    ancien_statut = commande.statut
+
+    # Mapping catégorie → statut
+    mapping_statut = {
+        "commande": "en_attente",
+        "sav": "transfere_sav",
+        "service_client": "transfere_service_client",
+    }
+    nouveau_statut = mapping_statut.get(payload.nouvelle_categorie)
+    if not nouveau_statut:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Catégorie invalide : {payload.nouvelle_categorie}",
+        )
+
+    commande.statut = nouveau_statut
+    db.commit()
+    db.refresh(commande)
+
+    logger.info(
+        f"Dossier #{commande_id} redirigé : {ancien_statut} → {nouveau_statut} "
+        f"(correction humaine)"
+    )
+
+    return commande

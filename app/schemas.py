@@ -48,3 +48,9 @@ class CommandeIAOutput(BaseModel):
     montant_total: float = Field(default=0.0, ge=0, le=100000000, allow_inf_nan=False)
     urgente: bool = Field(default=False)
     articles: List[ArticleSchema] = Field(default_factory=list)
+
+
+class RedirectionInput(BaseModel):
+    """Payload pour rediriger un dossier vers une autre catégorie."""
+    nouvelle_categorie: Literal["commande", "sav", "service_client"]
+    ancienne_categorie: Optional[str] = None
