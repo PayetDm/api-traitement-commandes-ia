@@ -100,6 +100,10 @@ def _nettoyer_json_llm(raw: dict) -> dict:
                 article["quantite"] = 1
                 corrections.append(f"article #{i} quantite invalide → 1")
 
+        if article.get("quantite", 1) < 1:
+            corrections.append(f"article #{i} quantite={article['quantite']} → 1")
+            article["quantite"] = 1
+
         if article.get("prix_unitaire") is None:
             article["prix_unitaire"] = 0.0
             corrections.append(f"article #{i} prix=None → 0.0")

@@ -29,7 +29,6 @@ psycopg2-binary>=2.9.9
 alembic>=1.13.0
 streamlit
 apscheduler
-slowapi==0.1.9
 ollama
 langfuse>=4.15.2
 nltk>=3.9.0
