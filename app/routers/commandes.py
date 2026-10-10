@@ -1,5 +1,5 @@
 from typing import List
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 import logging
 from pydantic import BaseModel, Field
 from sqlalchemy import func
@@ -59,9 +59,13 @@ def _analyser_en_arriere_plan(contenu_email: str, message_id: str | None = None)
 
 @router.post("/commandes/analyser", status_code=status.HTTP_202_ACCEPTED)
 def analyser_commande(
+    request: Request,
     email: EmailInput,
     _: str = Depends(verifier_cle_api),
 ):
+    from app.rate_limit import check_rate_limit
+    check_rate_limit(request, max_requests=5, window_seconds=60)
+
     _analyser_en_arriere_plan(email.contenu_email, email.message_id)
     return {"statut": "en_cours"}
 

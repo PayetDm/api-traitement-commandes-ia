@@ -1,8 +1,8 @@
 import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from apscheduler.schedulers.background import BackgroundScheduler
 from langfuse import get_client
@@ -68,8 +68,27 @@ app.add_middleware(
 
 # Rate Limiter
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+
+# ─── Handler personnalisé pour logger les rate limits dépassés ───
+async def custom_rate_limit_handler(request: Request, exc: RateLimitExceeded):
+    """Logge les dépassements de rate limit pour détecter les attaques."""
+    client_ip = request.client.host if request.client else "unknown"
+    logger.warning(
+        f"🚨 Rate limit dépassé : IP={client_ip} "
+        f"path={request.url.path} method={request.method}"
+    )
+    return JSONResponse(
+        status_code=429,
+        content={
+            "error": "Trop de requêtes",
+            "detail": "Vous avez dépassé la limite. Réessayez dans une minute.",
+            "retry_after": 60,
+        },
+    )
+
+
+app.add_exception_handler(RateLimitExceeded, custom_rate_limit_handler)
 
 # Route racine pour éviter le 404
 @app.get("/")
