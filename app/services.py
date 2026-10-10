@@ -42,36 +42,34 @@ def _observe_analyse(fonction):
     )(fonction)
 
 
-def _classifier_email(texte_email: str) -> tuple[str, str | None]:
+def _classifier_email(texte_email: str) -> tuple[str, str | None, str]:
     """
-    Classifie l'email en 4 catégories.
-    Retourne (categorie, langfuse_trace_id).
+    Classifie l'email.
+    Retourne (categorie, langfuse_trace_id, classification_method).
     """
     try:
-        # Récupère le client Langfuse AVANT l'appel pour capturer l'ID de trace
         from langfuse import get_client
         langfuse = get_client()
         
-        categorie = asyncio.run(classer_email_hybride(texte_email))
-        logger.info("Classification IA : %s", categorie)
+        # ✅ Récupère le tuple (categorie, method) du classifieur
+        categorie, method = asyncio.run(classer_email_hybride(texte_email))
+        logger.info("Classification IA : %s (méthode: %s)", categorie, method)
         
-        # Récupère l'ID de la trace courante
         trace_id = None
         try:
             current_trace = langfuse.get_current_trace_id()
             trace_id = current_trace
-            logger.debug("Trace Langfuse : %s", trace_id)
         except Exception as e:
             logger.debug("Impossible de récupérer l'ID de trace : %s", e)
         
         if categorie == "autre":
-            return "service_client", trace_id
-        return categorie, trace_id
+            return "service_client", trace_id, method
+        return categorie, trace_id, method
     except Exception as e:
         logger.warning(
             "Echec de la classification, fallback sur 'service_client' : %s", e
         )
-        return "service_client", None
+        return "service_client", None, "llm_unavailable_fallback"
     
 
 def _nettoyer_json_llm(raw: dict) -> dict:
@@ -164,9 +162,24 @@ def analyser_mail_avec_llm(texte_email: str) -> dict:
             data_dict["est_une_commande"] = False
 
         # Classification via le classifieur hybride (règles + stemming + LLM)
-        categorie, trace_id = _classifier_email(texte_email)
+        categorie, trace_id, method = _classifier_email(texte_email)
+        # ─── Recalcul du montant total côté Python (déterministe) ───
+        # Le LLM est mauvais en calcul, on recalcule pour fiabiliser
+        montant_calcule = sum(
+            art.get("quantite", 0) * art.get("prix_unitaire", 0.0)
+            for art in data_dict.get("articles", [])
+        )
+        if montant_calcule > 0:
+            ancien_montant = data_dict.get("montant_total", 0.0)
+            data_dict["montant_total"] = round(montant_calcule, 2)
+            if ancien_montant != data_dict["montant_total"]:
+                logger.info(
+                    f"Montant recalculé côté Python : "
+                    f"{ancien_montant} → {data_dict['montant_total']} €"
+                )
         data_dict["categorie"] = categorie
         data_dict["langfuse_trace_id"] = trace_id
+        data_dict["classification_method"] = method
 
         logger.info("Analyse IA terminee avec succes.")
         return data_dict

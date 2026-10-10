@@ -53,3 +53,4 @@ docker-compose.override.yml
 
 # ============ Config GitHub Copilot (local) ============
 .github/agents/
+demo-app/

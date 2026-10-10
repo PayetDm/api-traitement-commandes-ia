@@ -45,6 +45,7 @@ def _analyser_en_arriere_plan(contenu_email: str, message_id: str | None = None)
             urgente=1 if data.get("urgente", False) else 0,
             statut=statut_initial,
             langfuse_trace_id=data.get("langfuse_trace_id"),
+            classification_method=data.get("classification_method"),
             articles=articles,
         )
         db.add(commande)
@@ -105,9 +106,18 @@ def statistiques(
     _: str = Depends(verifier_cle_api),
     db: Session = Depends(get_db),
 ):
+    total = db.query(Commande).count()
+    nb_fallbacks = db.query(Commande).filter(
+        Commande.classification_method == "llm_unavailable_fallback"
+    ).count()
+    
+    taux_fiabilite = 0.0
+    if total > 0:
+        taux_fiabilite = round(((total - nb_fallbacks) / total) * 100, 1)
+    
     return {
-        "total_commandes": db.query(Commande).count(),
-        "total_demandes": db.query(Commande).count(),
+        "total_commandes": total,
+        "total_demandes": total,
         "chiffre_affaires_cumule": db.query(
             func.coalesce(func.sum(Commande.montant_total), 0.0)
         ).scalar(),
@@ -118,6 +128,8 @@ def statistiques(
         "en_service_client": db.query(Commande)
         .filter(Commande.statut == "transfere_service_client")
         .count(),
+        "nb_fallbacks_llm": nb_fallbacks,
+        "taux_fiabilite_llm": taux_fiabilite,      
     }
 
 

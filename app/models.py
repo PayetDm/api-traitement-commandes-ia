@@ -19,6 +19,7 @@ class Commande(Base):
 
     # ─── Observabilité MLOps ───
     langfuse_trace_id = Column(String, nullable=True, index=True)
+    classification_method = Column(String, nullable=True)
 
     # Relation 1-à-plusieurs avec les articles
     articles = relationship(

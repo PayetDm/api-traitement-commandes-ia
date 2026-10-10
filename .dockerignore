@@ -1,0 +1,59 @@
+# Environnement virtuel local
+.venv/
+venv/
+
+# Fichiers Python temporaires
+__pycache__/
+*.pyc
+*.pyo
+
+# Caches de test
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Git
+.git/
+.gitignore
+.dvc/
+.dvcignore
+
+# Secrets (CRITIQUE)
+.env
+.env.local
+.env.*.local
+
+# Documentation
+README.md
+DEBUG_LANGFUSE.md
+*.md
+LICENSE
+
+# Tests
+tests/
+
+# Docker
+docker-compose.yml
+Dockerfile
+.dockerignore
+
+# Base de données locale
+*.db
+*.sqlite3
+
+# IDE
+.vscode/
+.idea/
+
+# Fichiers système
+.DS_Store
+Thumbs.db
+
+# Scripts de debug
+debug_langfuse.py
+test_envoi_mail.py
+
+# Dossier langfuse cloné
+langfuse/

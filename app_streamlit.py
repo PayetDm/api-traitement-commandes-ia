@@ -36,7 +36,7 @@ try:
     if res_stats.status_code == 200:
         kpi = res_stats.json()
 
-        col1, col2, col3, col4 = st.columns(4)
+        col1, col2, col3, col4, col5 = st.columns(5)
         col1.metric(label="Total Demandes", value=kpi.get("total_demandes", 0))
         col2.metric(
             label="Chiffre d'Affaires",
@@ -49,6 +49,11 @@ try:
         col4.metric(
             label="🎧 En Service Client",
             value=kpi.get("en_service_client", 0),
+        )
+        col5.metric(
+            label="📊 Fiabilité IA",
+            value=f"{kpi.get('taux_fiabilite_llm', 100.0)}%",
+            help="Taux de classifications réussies par l'IA (100% - taux de fallback)",
         )
     else:
         st.warning("⚠️ Impossible de charger les statistiques depuis l'API.")

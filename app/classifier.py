@@ -190,14 +190,17 @@ async def classer_email_avec_llm(texte: str) -> str:
 # ============================================================
 
 @observe(name="classification_hybride")
-async def classer_email_hybride(texte: str) -> str:
+async def classer_email_hybride(texte: str) -> tuple[str, str]:
+    """
+    Classifie l'email.
+    Retourne (categorie, method).
+    """
     categorie = classer_email_par_regles(texte)
 
     if categorie != TypeEmail.AUTRE:
         method = "deterministic_rules"
         res = categorie.value
     else:
-        # Fallback : si le LLM plante, on retourne "autre" (fail-safe)
         try:
             res = await classer_email_avec_llm(texte)
             method = "ollama_llm"
@@ -208,13 +211,10 @@ async def classer_email_hybride(texte: str) -> str:
             res = "autre"
             method = "llm_unavailable_fallback"
 
-    # Traçabilité Langfuse
     langfuse = get_client()
     langfuse.update_current_span(
         metadata={"classification_method": method}
     )
-
-    # Force l'envoi immédiat à Langfuse
     langfuse.flush()
 
-    return res
+    return res, method
