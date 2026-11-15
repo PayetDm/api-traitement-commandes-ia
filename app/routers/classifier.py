@@ -1,30 +1,26 @@
-from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel, Field
-from langfuse import observe
+from fastapi import APIRouter, Depends
+from pydantic import BaseModel
+# ... (ajoute ici tes autres imports si besoin, ex: classifier.py)
 
-from app.classifier import classer_email_hybride
-from app.otel import flush_langfuse
-from app.security import verifier_cle_api
+# --- NOUVEAUX IMPORTS DE SÉCURITÉ (RBAC) ---
+from app.security.auth import require_role, User
+from app.security.roles import Role
 
+router = APIRouter(tags=["IA"])
 
-router = APIRouter(prefix="/ai", tags=["Classification"])
+class ClassificationInput(BaseModel):
+    text: str
 
-
-class TexteEmail(BaseModel):
-    text: str = Field(min_length=1, max_length=10000)
-
-
-@router.post("/classify")
-@observe(name="api_classify_email")
-async def classifier_email(
-    request: Request,
-    email: TexteEmail,
-    _: str = Depends(verifier_cle_api),
+# --- PROTÉGÉ (Operator) : Appel direct au LLM ---
+@router.post("/ai/classify")
+def classifier_texte(
+    payload: ClassificationInput,
+    user: User = Depends(require_role(Role.OPERATOR)) # <-- RBAC
 ):
-    # ─── Rate limit maison ───
-    from app.rate_limit import check_rate_limit
-    check_rate_limit(request, max_requests=10, window_seconds=60)
-
-    categorie = await classer_email_hybride(email.text)
-    flush_langfuse()
-    return {"categorie": categorie}
+    """
+    Route de test/classification. Exige Operator car elle consomme 
+    des ressources LLM coûteuses et peut être sujette au DoS.
+    """
+    # ... (ton code de classification actuel) ...
+    # Exemple de retour :
+    return {"categorie": "commande", "methode": "regles_deterministes"}

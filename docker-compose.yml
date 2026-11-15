@@ -21,7 +21,9 @@ services:
     ports:
       - "127.0.0.1:8000:8000"
     environment:
-      - API_KEY=${API_KEY}
+      - READER_API_KEY=${READER_API_KEY}
+      - OPERATOR_API_KEY=${OPERATOR_API_KEY}
+      - ADMIN_API_KEY=${ADMIN_API_KEY}
       - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       - OLLAMA_URL=http://service_ollama:11434
       - OLLAMA_MODEL=${OLLAMA_MODEL}
@@ -55,7 +57,7 @@ services:
       - "127.0.0.1:8501:8501"
     environment:
       - API_URL=${API_URL}
-      - API_KEY=${API_KEY}
+      - ADMIN_API_KEY=${ADMIN_API_KEY}
     depends_on:
       - api
     networks:

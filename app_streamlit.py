@@ -12,12 +12,17 @@ st.set_page_config(
 
 apply_custom_style()
 
-# Récupération des variables d'environnement
+# ==========================================
+# SÉCURITÉ & CONFIGURATION (MIS À JOUR POUR LE RBAC)
+# ==========================================
 API_URL = os.getenv("API_URL", "http://127.0.0.1:8000")
-API_KEY = os.getenv("API_KEY")
+
+# On utilise la clé ADMIN car le dashboard a besoin de faire 
+# des redirections (route protégée par le rôle ADMIN).
+API_KEY = os.getenv("ADMIN_API_KEY")
 
 if not API_KEY:
-    st.error("API_KEY n'est pas configurée. L'interface ne peut pas démarrer.")
+    st.error("ADMIN_API_KEY n'est pas configurée. L'interface ne peut pas démarrer.")
     st.stop()
 
 HEADERS = {
@@ -274,27 +279,12 @@ try:
     if response.status_code == 200:
         toutes_commandes = response.json()
 
-                # Répartition par statut
-        commandes_a_traiter = [
-            c for c in toutes_commandes
-            if c.get("statut") == "en_attente"
-        ]
-        commandes_expediees = [
-            c for c in toutes_commandes
-            if c.get("statut") == "expediee"
-        ]
-        commandes_terminees = [
-            c for c in toutes_commandes
-            if c.get("statut") == "traitee"
-        ]
-        dossiers_service_client = [
-            c for c in toutes_commandes
-            if c.get("statut") == "transfere_service_client"
-        ]
-        dossiers_sav = [
-            c for c in toutes_commandes
-            if c.get("statut") == "transfere_sav"
-        ]
+        # Répartition par statut
+        commandes_a_traiter = [c for c in toutes_commandes if c.get("statut") == "en_attente"]
+        commandes_expediees = [c for c in toutes_commandes if c.get("statut") == "expediee"]
+        commandes_terminees = [c for c in toutes_commandes if c.get("statut") == "traitee"]
+        dossiers_service_client = [c for c in toutes_commandes if c.get("statut") == "transfere_service_client"]
+        dossiers_sav = [c for c in toutes_commandes if c.get("statut") == "transfere_sav"]
 
         # Statuts disponibles pour les changements manuels
         statuts_disponibles = [
@@ -306,16 +296,11 @@ try:
             "erreur_technique",
         ]
 
-
-                # ---------------------------------------------------------
+        # ---------------------------------------------------------
         # ONGLET 1 : COMMANDES (3 sous-sections)
         # ---------------------------------------------------------
         with tab_commandes:
-            total_commandes = (
-                len(commandes_a_traiter)
-                + len(commandes_expediees)
-                + len(commandes_terminees)
-            )
+            total_commandes = len(commandes_a_traiter) + len(commandes_expediees) + len(commandes_terminees)
             if total_commandes == 0:
                 st.info("📭 Aucune commande enregistrée pour le moment.")
             else:
@@ -325,14 +310,7 @@ try:
                     f"""
                     <h3 style="display: flex; align-items: center; gap: 10px;">
                         🟠 En cours
-                        <span style="
-                            background-color: #F59E0B;
-                            color: white;
-                            padding: 2px 10px;
-                            border-radius: 12px;
-                            font-size: 0.75em;
-                            font-weight: 700;
-                        ">{nb_attente}</span>
+                        <span style="background-color: #F59E0B; color: white; padding: 2px 10px; border-radius: 12px; font-size: 0.75em; font-weight: 700;">{nb_attente}</span>
                     </h3>
                     """,
                     unsafe_allow_html=True,
@@ -341,9 +319,7 @@ try:
                     st.success("✨ Aucune commande à préparer. Bon boulot !")
                 else:
                     for cmd in reversed(commandes_a_traiter):
-                        afficher_commande(
-                            cmd, statuts_disponibles, cle_prefixe="encours_"
-                        )
+                        afficher_commande(cmd, statuts_disponibles, cle_prefixe="encours_")
 
                 st.divider()
 
@@ -353,14 +329,7 @@ try:
                     f"""
                     <h3 style="display: flex; align-items: center; gap: 10px;">
                         🚚 Expédiées
-                        <span style="
-                            background-color: #3B82F6;
-                            color: white;
-                            padding: 2px 10px;
-                            border-radius: 12px;
-                            font-size: 0.75em;
-                            font-weight: 700;
-                        ">{nb_exp}</span>
+                        <span style="background-color: #3B82F6; color: white; padding: 2px 10px; border-radius: 12px; font-size: 0.75em; font-weight: 700;">{nb_exp}</span>
                     </h3>
                     """,
                     unsafe_allow_html=True,
@@ -369,9 +338,7 @@ try:
                     st.caption("📭 Aucune commande en cours de livraison.")
                 else:
                     for cmd in reversed(commandes_expediees):
-                        afficher_commande(
-                            cmd, statuts_disponibles, cle_prefixe="exp_"
-                        )
+                        afficher_commande(cmd, statuts_disponibles, cle_prefixe="exp_")
 
                 st.divider()
 
@@ -381,14 +348,7 @@ try:
                     f"""
                     <h3 style="display: flex; align-items: center; gap: 10px;">
                         ✅ Terminées
-                        <span style="
-                            background-color: #10B981;
-                            color: white;
-                            padding: 2px 10px;
-                            border-radius: 12px;
-                            font-size: 0.75em;
-                            font-weight: 700;
-                        ">{nb_term}</span>
+                        <span style="background-color: #10B981; color: white; padding: 2px 10px; border-radius: 12px; font-size: 0.75em; font-weight: 700;">{nb_term}</span>
                     </h3>
                     """,
                     unsafe_allow_html=True,
@@ -397,9 +357,7 @@ try:
                     st.caption("📭 Aucune commande terminée pour le moment.")
                 else:
                     for cmd in reversed(commandes_terminees):
-                        afficher_commande(
-                            cmd, statuts_disponibles, cle_prefixe="term_"
-                        )
+                        afficher_commande(cmd, statuts_disponibles, cle_prefixe="term_")
 
 
         # ---------------------------------------------------------
@@ -409,14 +367,9 @@ try:
             if not dossiers_service_client:
                 st.info("Aucun dossier en Service Client.")
             else:
-                st.caption(
-                    f"📬 {len(dossiers_service_client)} dossier(s) relationnel(s) "
-                    "à traiter par le Service Client."
-                )
+                st.caption(f"📬 {len(dossiers_service_client)} dossier(s) relationnel(s) à traiter par le Service Client.")
                 for dossier in reversed(dossiers_service_client):
-                    afficher_commande(
-                        dossier, statuts_disponibles, cle_prefixe="sc_"
-                    )
+                    afficher_commande(dossier, statuts_disponibles, cle_prefixe="sc_")
 
 
         # ---------------------------------------------------------
@@ -426,14 +379,9 @@ try:
             if not dossiers_sav:
                 st.info("Aucun dossier SAV.")
             else:
-                st.caption(
-                    f"🛠️ {len(dossiers_sav)} dossier(s) technique(s) "
-                    "à traiter par le SAV."
-                )
+                st.caption(f"🛠️ {len(dossiers_sav)} dossier(s) technique(s) à traiter par le SAV.")
                 for dossier in reversed(dossiers_sav):
-                    afficher_commande(
-                        dossier, statuts_disponibles, cle_prefixe="sav_"
-                    )
+                    afficher_commande(dossier, statuts_disponibles, cle_prefixe="sav_")
 
 
         # ---------------------------------------------------------
@@ -441,10 +389,7 @@ try:
         # ---------------------------------------------------------
         with tab_test:
             st.markdown("### ✉️ Tester l'analyse d'un e-mail")
-            st.caption(
-                "Injecte un texte de mail personnalisé pour observer le classement "
-                "automatique par le LLM."
-            )
+            st.caption("Injecte un texte de mail personnalisé pour observer le classement automatique par le LLM.")
 
             email_test_default = (
                 "Bonjour,\n\n"
@@ -473,16 +418,10 @@ try:
                         st.success("E-mail analysé et enregistré avec succès !")
                         st.rerun()
                     else:
-                        st.error(
-                            f"Erreur lors de l'analyse "
-                            f"(Code {test_res.status_code})."
-                        )
+                        st.error(f"Erreur lors de l'analyse (Code {test_res.status_code}).")
 
     else:
-        st.error(
-            f"Erreur lors de la récupération des commandes "
-            f"(Code {response.status_code})."
-        )
+        st.error(f"Erreur lors de la récupération des commandes (Code {response.status_code}).")
 
 except Exception as e:
     st.error(f"Impossible de joindre le serveur FastAPI : {e}")
