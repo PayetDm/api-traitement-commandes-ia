@@ -1,0 +1,28 @@
+# --- Framework & API ---
+fastapi
+uvicorn
+pydantic
+python-dotenv
+python-multipart
+
+# --- Base de données ---
+sqlalchemy
+alembic
+psycopg2-binary
+
+# --- MLOps & IA ---
+langfuse
+ollama
+pandas
+numpy>=2.0.0
+nltk
+
+# --- Frontend & Sécurité ---
+streamlit
+slowapi
+requests
+
+# --- Tests & Qualité (Dev) ---
+pytest
+httpx
+pylint
