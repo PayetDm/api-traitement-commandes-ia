@@ -32,3 +32,17 @@ jobs:
         if: always()
         with:
           sarif_file: 'trivy-results.sarif'
+
+  sbom-generation:
+    name: Generate SBOM (Syft)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Generate SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          path: ./
+          format: spdx-json
+          artifact-name: sbom.spdx.json
