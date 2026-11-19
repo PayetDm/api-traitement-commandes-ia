@@ -41,6 +41,14 @@ Thumbs.db
 .env
 .env.local
 .env.*.local
+cosign.key
+cosign.pub
+
+# ============ Artefacts de sécurité (Supply Chain) ============
+# On garde le SBOM principal et son bundle (à versionner)
+# Mais on ignore les anciens formats ou fichiers temporaires
+sbom.json
+*.sig
 
 # ============ Logs ============
 *.log
