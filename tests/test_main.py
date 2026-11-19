@@ -6,11 +6,16 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+# ==========================================
+# 1. DÉFINITION DES VARIABLES D'ENV DE TEST
+# (DOIT ÊTRE FAIT AVANT LES IMPORTS DE L'APP)
+# ==========================================
+os.environ["READER_API_KEY"] = "test_reader_key"
+os.environ["OPERATOR_API_KEY"] = "test_operator_key"
+os.environ["ADMIN_API_KEY"] = "test_admin_key"
+
 from app.database import Base, get_db
 from app.main import app
-
-# Clé de test locale pour authentifier les requêtes
-SECRET_API_KEY = os.environ["API_KEY"]
 
 # Base de données SQLite isolée en mémoire pour les tests
 SQLALCHEMY_TEST_DATABASE_URL = "sqlite:///:memory:"
@@ -48,6 +53,14 @@ def setup_test_db():
 
 client = TestClient(app)
 
+# --- Headers de test ---
+HEADERS_READER = {"X-API-Key": "test_reader_key"}
+HEADERS_OPERATOR = {"X-API-Key": "test_operator_key"}
+
+
+# ==========================================
+# LES TESTS
+# ==========================================
 
 # Le patch pointe désormais vers le routeur où la fonction est réellement appelée
 @patch("app.routers.commandes.analyser_mail_avec_llm")
@@ -65,8 +78,8 @@ def test_analyser_commande_asynchrone(mock_ollama):
     payload = {
         "contenu_email": "Commande urgente de Jean Dupont pour 1 Clavier RGB a 150 euros."
     }
-    headers = {"X-API-Key": SECRET_API_KEY}
-    response = client.post("/commandes/analyser", json=payload, headers=headers)
+    # <-- Utilisation de la clé OPERATOR (car la route est protégée par OPERATOR)
+    response = client.post("/commandes/analyser", json=payload, headers=HEADERS_OPERATOR)
 
     assert response.status_code == 202
     data = response.json()
@@ -81,8 +94,11 @@ def test_analyser_commande_sans_cle_api():
 
 
 def test_lire_commande_non_trouvee():
-    """Vérifie qu'une commande inexistante renvoie 404."""
-    response = client.get("/commandes/999999", headers={"X-API-Key": SECRET_API_KEY})
+    """La lecture nécessite le rôle READER."""
+    response = client.get(
+        "/commandes/99999", 
+        headers=HEADERS_READER
+    )
     assert response.status_code == 404
 
 
@@ -108,4 +124,5 @@ def test_health_check():
     """Vérifie la route de santé de l'API."""
     response = client.get("/health")
     assert response.status_code == 200
-    assert response.json() == {"statut": "ok", "base_de_donnees": "connectee"}
+    # <-- CORRIGÉ : c'est "status" avec un S, pas "statut"
+    assert response.json() == {"status": "ok"}
